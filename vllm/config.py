@@ -1498,6 +1498,9 @@ class SchedulerConfig:
 
     chunked_prefill_enabled: bool = field(init=False)
 
+    # finished request policy: "default", "pause_recompute", "pause_swap"
+    finished_requests_policy: str = "default"
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,

@@ -66,6 +66,7 @@ class SequenceStatus(enum.IntEnum):
     FINISHED_LENGTH_CAPPED = 4
     FINISHED_ABORTED = 5
     FINISHED_IGNORED = 6
+    FINISHED_PAUSED = 7
 
     @staticmethod
     def is_finished(status: "SequenceStatus") -> bool:
@@ -84,6 +85,8 @@ class SequenceStatus(enum.IntEnum):
             # are longer than the model's length cap. Therefore, the stop
             # reason should also be "length" as in OpenAI API.
             finish_reason = "length"
+        elif status == SequenceStatus.FINISHED_PAUSED:
+            finish_reason = "paused"
         else:
             finish_reason = None
         return finish_reason
@@ -654,6 +657,7 @@ class SequenceGroup:
         trace_headers: Optional[Mapping[str, str]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         priority: int = 0,
+        user_args: Optional[dict] = None,
     ) -> None:
         self.request_id = request_id
         self.seqs = seqs
@@ -680,6 +684,10 @@ class SequenceGroup:
         self.priority = priority
 
         self.cached_request_output = None
+        self.user_args = user_args
+        self.user_id = None
+        if user_args:
+            self.user_id = user_args['id']
 
     @property
     def prompt(self) -> Optional[str]:

@@ -371,6 +371,10 @@ class Scheduler:
         # Sequence groups in the SWAPPED state.
         # Contain decode requests that are swapped out.
         self.swapped: Deque[SequenceGroup] = deque()
+
+        # Sequence groups that have been paused 
+        self.paused: dict[str, SequenceGroup] = {}
+
         # Sequence groups finished requests ids since last step iteration.
         # It lets the model know that any state associated with these requests
         # can and must be released after the current step.
@@ -1446,6 +1450,13 @@ class Scheduler:
     def fork_seq(self, parent_seq: Sequence, child_seq: Sequence) -> None:
         self.block_manager.fork(parent_seq, child_seq)
 
+    def add_seq_group_to_paused(self, seq_group: SequenceGroup, fr_policy):
+        user_id = seq_group.user_id
+        self.paused[user_id] = (seq_group, fr_policy)
+        for seq in seq_group.get_seqs():
+            if seq.is_finished():
+                seq.status = SequenceStatus.FINISHED_PAUSED
+
     def free_seq(self, seq: Sequence) -> None:
         """Free a sequence from a block table."""
         self.block_manager.free(seq)
@@ -1466,8 +1477,26 @@ class Scheduler:
             # next step.
             self._finished_requests_ids.append(seq_group.request_id)
 
-        # Free finished seqs
-        self._free_finished_seqs(seq_group)
+        fr_policy = self.scheduler_config.finished_requests_policy
+        logger.info("finishing request=%s user_id=%s with fr_policy=%s" 
+                        % (seq_group.request_id, seq_group.user_id, fr_policy))
+        
+        if fr_policy == "default":
+            # the default policy is to free and "forget" the request
+
+            # Free finished seqs
+            self._free_finished_seqs(seq_group)
+        
+        elif fr_policy == "pause_recompute":
+            # add it to the paused queue and also free it for recomputation later
+            self._free_finished_seqs(seq_group)
+            self.add_seq_group_to_paused(seq_group, fr_policy)
+
+        elif fr_policy == "pause_swap":
+            # Do not free and add the seq_group to paused as is 
+            self.add_seq_group_to_paused(seq_group, fr_policy)
+        else:
+            raise ValueError("Invalid finished_requests_policy!") 
 
     def free_finished_seq_groups(self) -> None:
         remaining: Deque[SequenceGroup] = deque()

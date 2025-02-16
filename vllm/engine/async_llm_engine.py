@@ -193,6 +193,8 @@ class RequestTracker:
                     *,
                     verbose: bool = False,
                     **engine_add_request_kwargs) -> AsyncStream:
+        
+        # logger.info("[elasticswap] engine_add_request_kwargs = %s" % engine_add_request_kwargs)
         """Add a request to be sent to the engine on the next background
         loop iteration."""
         if request_id in self._request_streams:
@@ -469,9 +471,12 @@ class _AsyncLLMEngine(LLMEngine):
             trace_headers: Optional[Mapping[str, str]] = None,
             prompt_adapter_request: Optional[PromptAdapterRequest] = None,
             priority: int = 0,
+            user_args: Optional[dict] = None,
             *,
             inputs: Optional[PromptType] = None,  # DEPRECATED
     ) -> None:
+        
+        logger.info("[elasticswap] user_args=%s" % user_args)
         """Async version of :meth:`add_request`."""
         if inputs is not None:
             prompt = inputs
@@ -520,6 +525,7 @@ class _AsyncLLMEngine(LLMEngine):
             prompt_adapter_request=prompt_adapter_request,
             trace_headers=trace_headers,
             priority=priority,
+            user_args=user_args,
         )
 
     async def check_health_async(self) -> None:
@@ -733,6 +739,7 @@ class AsyncLLMEngine(EngineClient):
         for new_request in new_requests:
             # Add the request into the vLLM engine's waiting queue.
             try:
+                # logger.info("[elasticswap] new_request=%s" % new_request)
                 await self.engine.add_request_async(**new_request)
             except ValueError as e:
                 # TODO: use a vLLM specific error for failed validation
@@ -890,6 +897,7 @@ class AsyncLLMEngine(EngineClient):
         trace_headers: Optional[Mapping[str, str]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         priority: int = 0,
+        user_args: Optional[dict] = None,
         *,
         inputs: Optional[PromptType] = None,  # DEPRECATED
     ) -> AsyncGenerator[Union[RequestOutput, PoolingRequestOutput], None]:
@@ -922,6 +930,7 @@ class AsyncLLMEngine(EngineClient):
             trace_headers=trace_headers,
             prompt_adapter_request=prompt_adapter_request,
             priority=priority,
+            user_args=user_args,
         )
 
         return stream.generator()
@@ -935,6 +944,7 @@ class AsyncLLMEngine(EngineClient):
         trace_headers: Optional[Mapping[str, str]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         priority: int = 0,
+        user_args: Optional[dict] = None,
     ) -> AsyncGenerator[RequestOutput, None]:
         """Generate outputs for a request.
 
@@ -1011,6 +1021,7 @@ class AsyncLLMEngine(EngineClient):
                     trace_headers=trace_headers,
                     prompt_adapter_request=prompt_adapter_request,
                     priority=priority,
+                    user_args=user_args,
             ):
                 yield LLMEngine.validate_output(output, RequestOutput)
         except asyncio.CancelledError:
