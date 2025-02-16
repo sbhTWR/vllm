@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from openai import OpenAI
 
 # Modify OpenAI's API key and API base to use vLLM's API server.
@@ -33,7 +34,7 @@ chat_completion = client.chat.completions.create(
         "content": "Where was it played?"
     }],
     model=model,
-    user="test_user_id"
+    user=json.dumps({"id": "test_id", "type": "append"})
 )
 
 print("Chat completion results:")
