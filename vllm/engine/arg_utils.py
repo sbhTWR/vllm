@@ -188,6 +188,7 @@ class EngineArgs:
     collect_detailed_traces: Optional[str] = None
     disable_async_output_proc: bool = False
     scheduling_policy: Literal["fcfs", "priority"] = "fcfs"
+    finished_requests_policy: Literal["default", "pause_recompute", "pause_swap"]
 
     override_neuron_config: Optional[Dict[str, Any]] = None
     override_pooler_config: Optional[PoolerConfig] = None
@@ -906,6 +907,12 @@ class EngineArgs:
             'arrival deciding any ties).')
 
         parser.add_argument(
+            '--fr-policy',
+            choices=['default', 'pause_recompute', "pause_swap"],
+            default="default",
+            help='TODO')
+
+        parser.add_argument(
             '--override-neuron-config',
             type=json.loads,
             default=None,
@@ -1228,7 +1235,8 @@ class EngineArgs:
             multi_step_stream_outputs=self.multi_step_stream_outputs,
             send_delta_data=(envs.VLLM_USE_RAY_SPMD_WORKER
                              and parallel_config.use_ray),
-            policy=self.scheduling_policy)
+            policy=self.scheduling_policy,
+            finished_requests_policy=self.finished_requests_policy)
         lora_config = LoRAConfig(
             bias_enabled=self.enable_lora_bias,
             max_lora_rank=self.max_lora_rank,
