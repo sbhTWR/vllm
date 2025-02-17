@@ -14,12 +14,15 @@ from typing import Set, Tuple, Union
 import msgspec
 import torch
 
+from vllm.logger import init_logger
 from vllm.inputs import SingletonInputs, SingletonInputsAdapter
 from vllm.lora.request import LoRARequest
 from vllm.multimodal import MultiModalDataDict, MultiModalPlaceholderDict
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import RequestOutputKind, SamplingParams
+
+logger = init_logger(__name__)
 
 VLLM_TOKEN_ID_ARRAY_TYPE = "l"
 
@@ -894,6 +897,8 @@ class SequenceGroup:
                 f"sampling_params={self.sampling_params}, "
                 f"num_seqs={len(self.seqs)})")
 
+def merge_seq_groups_persist(new_seq_group: SequenceGroup, old_seq_group: SequenceGroup) -> SequenceGroup:
+    pass 
 
 def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: SequenceGroup) -> SequenceGroup:
 
@@ -912,7 +917,7 @@ def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: Sequ
     block_size = old_seq_group.seqs[0].block_size
     eos_token_id = old_seq_group.seqs[0].eos_token_id
 
-    decoder_inputs = old_seq_group.seqs[0].inputs
+    decoder_inputs = old_seq_group.seqs[0].inputs.inputs
     
 
     old_seq = old_seq_group.seqs[0]
@@ -921,7 +926,8 @@ def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: Sequ
                                             + list(old_seq.get_output_token_ids())\
                                             + new_seq.prompt_token_ids
 
-    decoder_inputs['prompt'] = old_seq.prompt + old_seq.output_text + new_seq.prompt
+    # logger.info("old_prompt=%s old_output=%s new_prompt=%s" % (old_seq.prompt, old_seq.output_text, new_seq.prompt))
+    # decoder_inputs['prompt'] = old_seq.prompt + old_seq.output_text + new_seq.prompt
 
     seq = Sequence(seq_id, decoder_inputs, block_size, eos_token_id,
                        lora_request, prompt_adapter_request)
