@@ -188,7 +188,7 @@ class EngineArgs:
     collect_detailed_traces: Optional[str] = None
     disable_async_output_proc: bool = False
     scheduling_policy: Literal["fcfs", "priority"] = "fcfs"
-    finished_requests_policy: Literal["default", "pause_recompute", "pause_swap"]
+    finished_requests_policy: Literal["default", "pause_recompute", "pause_swap"] = "default"
 
     override_neuron_config: Optional[Dict[str, Any]] = None
     override_pooler_config: Optional[PoolerConfig] = None
@@ -908,6 +908,7 @@ class EngineArgs:
 
         parser.add_argument(
             '--fr-policy',
+            dest="finished_requests_policy",
             choices=['default', 'pause_recompute', "pause_swap"],
             default="default",
             help='TODO')
