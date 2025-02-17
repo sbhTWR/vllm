@@ -644,6 +644,7 @@ class LLMEngine:
         trace_headers: Optional[Mapping[str, str]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         priority: int = 0,
+        user_args: Optional[dict] = None,
     ) -> None:
         ...
 
@@ -677,6 +678,7 @@ class LLMEngine:
             trace_headers: Optional[Mapping[str, str]] = None,
             prompt_adapter_request: Optional[PromptAdapterRequest] = None,
             priority: int = 0,
+            user_args: Optional[dict] = None,
             *,
             inputs: Optional[PromptType] = None,  # DEPRECATED
     ) -> None:
@@ -769,6 +771,7 @@ class LLMEngine:
             prompt_adapter_request=prompt_adapter_request,
             trace_headers=trace_headers,
             priority=priority,
+            user_args=user_args
         )
 
     def _validate_token_prompt(self, prompt: PromptType,
