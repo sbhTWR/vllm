@@ -895,6 +895,70 @@ class SequenceGroup:
                 f"num_seqs={len(self.seqs)})")
 
 
+def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: SequenceGroup) -> SequenceGroup:
+
+    request_id = new_seq_group.request_id
+    sampling_params = new_seq_group.sampling_params
+    pooling_params = new_seq_group.pooling_params
+    arrival_time = old_seq_group.arrival_time
+    lora_request = new_seq_group.lora_request
+    trace_headers = new_seq_group.trace_headers
+    prompt_adapter_request = new_seq_group.prompt_adapter_request
+    encoder_seq = new_seq_group.encoder_seq
+    priority = new_seq_group.priority
+    user_args = old_seq_group.user_args
+
+    seq_id = old_seq_group.seqs[0].seq_id
+    block_size = old_seq_group.seqs[0].block_size
+    eos_token_id = old_seq_group.seqs[0].eos_token_id
+
+    decoder_inputs = old_seq_group.seqs[0].inputs
+    
+
+    old_seq = old_seq_group.seqs[0]
+    new_seq = new_seq_group.seqs[0]
+    decoder_inputs['prompt_token_ids'] = old_seq.prompt_token_ids\
+                                            + list(old_seq.get_output_token_ids())\
+                                            + new_seq.prompt_token_ids
+
+    decoder_inputs['prompt'] = old_seq.prompt + old_seq.output_text + new_seq.prompt
+
+    seq = Sequence(seq_id, decoder_inputs, block_size, eos_token_id,
+                       lora_request, prompt_adapter_request)
+
+    # Create a SequenceGroup based on SamplingParams or PoolingParams
+    if sampling_params:
+        sampling_params = sampling_params.clone()
+        # Create the sequence group.
+        merged_seq_group = SequenceGroup(
+            request_id=request_id,
+            seqs=[seq],
+            arrival_time=arrival_time,
+            sampling_params=sampling_params,
+            lora_request=lora_request,
+            trace_headers=trace_headers,
+            prompt_adapter_request=prompt_adapter_request,
+            encoder_seq=encoder_seq,
+            priority=priority,
+            user_args=user_args)
+        
+    elif pooling_params:
+        pooling_params = pooling_params.clone()    
+        # Create the sequence group.
+        merged_seq_group = SequenceGroup(
+            request_id=request_id,
+            seqs=[seq],
+            arrival_time=arrival_time,
+            lora_request=lora_request,
+            pooling_params=pooling_params,
+            prompt_adapter_request=prompt_adapter_request,
+            encoder_seq=encoder_seq,
+            priority=priority,
+            user_args=user_args,)
+    
+    return merged_seq_group
+
+
 class SequenceGroupMetadataDelta(
         msgspec.Struct,
         tag=True,  # type: ignore[call-arg]

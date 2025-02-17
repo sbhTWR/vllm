@@ -17,7 +17,8 @@ from vllm.lora.request import LoRARequest
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadata, SequenceGroupMetadataDelta,
-                           SequenceStatus)
+                           SequenceStatus, merge_seq_groups_recompute,
+                           merge_seq_groups_persist)
 from vllm.utils import Device, PyObjectCache
 
 logger = init_logger(__name__)
@@ -441,6 +442,38 @@ class Scheduler:
     def add_seq_group(self, seq_group: SequenceGroup) -> None:
         # Add sequence groups to the waiting queue.
         self.waiting.append(seq_group)
+
+    def update_seq_group(self, new_seq_group: SequenceGroup, 
+                            seq_group: SequenceGroup,
+                            fr_policy) -> SequenceGroup:
+        
+        assert new_seq_group.user_id == seq_group.user_id, "user_id does not match!"
+        # TODO: add update logic here
+        if fr_policy == "pause_recompute":
+            seq_group = merge_seq_groups_recompute(new_seq_group, seq_group)
+        elif fr_policy == "pause_swap":
+            seq_group = merge_seq_groups_persist(new_seq_group, seq_group)
+        else:
+            raise ValueError("invalid fr_policy=%s" % fr_policy)
+
+        return seq_group
+
+    def requeue_seq_group(self, seq_group: SequenceGroup) -> None:
+        # TODO add prio requeue logic here
+        self.add_seq_group(seq_group)
+
+    def resume_seq_group(self, new_seq_group: SequenceGroup) -> None:
+        user_id = new_seq_group.user_id 
+        seq_group, fr_policy = self.paused[user_id]
+        if fr_policy == "pause_recompute":
+            seq_group = self.update_seq_group(new_seq_group, seq_group, fr_policy)
+            self.requeue_seq_group(seq_group)
+        
+        elif fr_policy == "pause_swap":
+            raise NotImplementedError("pause_swap not implemented")
+
+        else:
+            raise ValueError("invalid fr_policy %s" % fr_policy)
 
     def _add_seq_group_to_running(self, seq_group: SequenceGroup) -> None:
         # Add sequence groups to the running queue.

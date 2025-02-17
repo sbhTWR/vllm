@@ -620,13 +620,22 @@ class LLMEngine:
             raise ValueError(
                 "Either SamplingParams or PoolingParams must be provided.")
 
-        # Add the sequence group to the scheduler with least unfinished seqs.
-        costs = [
-            scheduler.get_num_unfinished_seq_groups()
-            for scheduler in self.scheduler
-        ]
-        min_cost_scheduler = self.scheduler[costs.index(min(costs))]
-        min_cost_scheduler.add_seq_group(seq_group)
+        scheduled = False
+        user_id = seq_group.user_id
+        if user_id:
+            for scheduler in self.scheduler:
+                if user_id in scheduler.paused:
+                    scheduler.resume_seq_group(seq_group)
+                    scheduled = True
+
+        if not scheduled:
+            # Add the sequence group to the scheduler with least unfinished seqs.
+            costs = [
+                scheduler.get_num_unfinished_seq_groups()
+                for scheduler in self.scheduler
+            ]
+            min_cost_scheduler = self.scheduler[costs.index(min(costs))]
+            min_cost_scheduler.add_seq_group(seq_group)
 
         return seq_group
 
