@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Tuple
 
+from vllm.logger import init_logger
 from vllm.core.block.block_table import BlockTable
 from vllm.core.block.cpu_gpu_block_allocator import CpuGpuBlockAllocator
 from vllm.core.block.interfaces import Block
@@ -13,6 +14,8 @@ from vllm.core.block.utils import check_no_caching_or_swa_for_blockmgr_encdec
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.sequence import Sequence, SequenceGroup, SequenceStatus
 from vllm.utils import Device
+
+logger = init_logger(__name__)
 
 SeqId = int
 EncoderSeqId = str
@@ -112,6 +115,10 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         # FIXME(woosuk): Here we assume that all sequences in the group share
         # the same prompt. This may not be true for preempted sequences.
 
+        # FIXME(shubham): Temporary fix for persist / swap
+        if seq_group.first_seq.seq_id in self.block_tables:
+            return AllocStatus.OK
+
         check_no_caching_or_swa_for_blockmgr_encdec(self, seq_group)
 
         seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
@@ -164,6 +171,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
     def allocate(self, seq_group: SequenceGroup) -> None:
 
+        logger.info("[elasticswap] block_table keys = %s seq_id=%d" % 
+                    (self.block_tables.keys(), seq_group.first_seq.seq_id))
         # Allocate self-attention block tables for decoder sequences
         waiting_seqs = seq_group.get_seqs(status=SequenceStatus.WAITING)
         assert not (set(seq.seq_id for seq in waiting_seqs)
@@ -518,3 +527,34 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         cached in the block manager for the sequence.
         """
         return self._computed_blocks_tracker.get_num_cached_tokens(seq)
+
+
+    # def _get_blocks_for_swap_in(self, seq_group: SequenceGroup,
+    #                          status: SequenceStatus,
+    #                          swap_in: bool = False) -> List[Block]:
+    #     """Returns the list of blocks those are touched by the seq_group
+        
+    #     Args:
+    #         sequence_group (SequenceGroup): The sequence group to swap in.
+    #         status (SequenceStatus): The status of sequence which is needed
+    #             for action. RUNNING for swap out and SWAPPED for swap in
+        
+    #     Returns:
+    #         The list of blocks those are touched by the seq_group.
+    #     """
+    #     blocks: Dict[int, List[Block]] = {}
+    #     for seq in seq_group.get_seqs(status=status):
+    #         if seq.seq_id not in self.block_tables:
+    #             return None
+    #         block_table = self.block_tables[seq.seq_id]
+    #         if block_table.blocks is not None:
+    #             filtered_blocks = []
+    #             for block in block_table.blocks:
+    #                 if block.block_id >= self.num_total_gpu_blocks:
+    #                     # cpu block
+    #                     filtered_blocks.append(block)
+    #             blocks[seq.seq_id] = filtered_blocks
+
+                
+    #     combined_blocks = list(chain(*blocks.values()))
+    #     return combined_blocks

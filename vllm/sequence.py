@@ -691,6 +691,12 @@ class SequenceGroup:
         self.user_id = None
         if user_args:
             self.user_id = user_args['id']
+        
+        self._returning = False
+
+    @property
+    def returning(self) -> bool:
+        return self._returning
 
     @property
     def prompt(self) -> Optional[str]:
@@ -898,7 +904,29 @@ class SequenceGroup:
                 f"num_seqs={len(self.seqs)})")
 
 def merge_seq_groups_persist(new_seq_group: SequenceGroup, old_seq_group: SequenceGroup) -> SequenceGroup:
-    pass 
+    request_id = new_seq_group.request_id
+    old_seq_group.request_id = request_id
+
+    # append context 
+    output_ids_to_append = new_seq_group.first_seq.data._prompt_token_ids
+    old_seq_group.first_seq.data._output_token_ids.extend(output_ids_to_append)
+
+    num_uncomputed = old_seq_group.first_seq.get_len() - old_seq_group.first_seq.get_num_computed_tokens()
+    logger.info("[elasticswap] output_token_ids added = %d" % len(output_ids_to_append))
+    logger.info("[elasticswap] num_uncomputed_tokens = %d" % (num_uncomputed))
+
+    # reset state 
+    old_seq_group.first_seq.data._stage = SequenceStage.PREFILL
+    old_seq_group.first_seq.status = SequenceStatus.WAITING
+
+
+    # TODO: update cached tokens?
+
+    old_seq_group._returning = True
+
+    return old_seq_group
+    
+
 
 def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: SequenceGroup) -> SequenceGroup:
 
@@ -962,6 +990,8 @@ def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: Sequ
             priority=priority,
             user_args=user_args,)
     
+    merged_seq_group._returning = True
+
     return merged_seq_group
 
 

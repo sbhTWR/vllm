@@ -470,8 +470,8 @@ class Scheduler:
             self.requeue_seq_group(seq_group)
         
         elif fr_policy == "pause_swap":
-            raise NotImplementedError("pause_swap not implemented")
-
+            seq_group = self.update_seq_group(new_seq_group, seq_group, fr_policy)
+            self.requeue_seq_group(seq_group)
         else:
             raise ValueError("invalid fr_policy %s" % fr_policy)
 
@@ -977,9 +977,10 @@ class Scheduler:
                     budget))
             num_new_tokens = num_new_tokens_uncached + num_new_tokens_cached
 
-            if not enable_chunking:
+            if not enable_chunking and not seq_group.returning:
                 num_prompt_tokens = waiting_seqs[0].get_len()
-                assert num_new_tokens == num_prompt_tokens
+                assert num_new_tokens == num_prompt_tokens,\
+                    "num_new_tokens=%s num_prompt_tokens=%s" % (num_new_tokens, num_prompt_tokens)
 
             prompt_limit = self._get_prompt_limit(seq_group)
             if num_new_tokens > prompt_limit:
@@ -1492,12 +1493,14 @@ class Scheduler:
 
     def free_seq(self, seq: Sequence) -> None:
         """Free a sequence from a block table."""
+        logger.info("[elasticswap] freeing seq_id=%d" % seq.seq_id)
         self.block_manager.free(seq)
 
     def _free_finished_seqs(self, seq_group: SequenceGroup) -> None:
         """Free finished seqs in a sequence group."""
         for seq in seq_group.get_seqs():
             if seq.is_finished():
+                logger.info("[elasticswap] freeing seq_id=%d" % seq.seq_id)
                 self.free_seq(seq)
 
     def _free_finished_seq_group(self, seq_group: SequenceGroup) -> None:

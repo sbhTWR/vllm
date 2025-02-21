@@ -17,6 +17,7 @@ models = client.models.list()
 print(models)
 model = models.data[0].id
 
+# Request 1 
 chat_completion = client.chat.completions.create(
     messages=[{
         "role": "system",
@@ -25,10 +26,8 @@ chat_completion = client.chat.completions.create(
         "role": "user",
         "content": "Who won the world series in 2020?"
     }, {
-        "role":
-        "assistant",
-        "content":
-        "The Los Angeles Dodgers won the World Series in 2020."
+        "role": "assistant",
+        "content": "The Los Angeles Dodgers won the World Series in 2020."
     }, {
         "role": "user",
         "content": "Where was it played?"
@@ -36,6 +35,16 @@ chat_completion = client.chat.completions.create(
     model=model,
     user=json.dumps({"id": "test_id", "type": "append"})
 )
+
+# # Request 2 
+# chat_completion = client.chat.completions.create(
+#     messages=[{
+#         "role": "user",
+#         "content": "Where was it played?"
+#     }],
+#     model=model,
+#     user=json.dumps({"id": "test_id", "type": "append"})
+# )
 
 print("Chat completion results:")
 print(chat_completion)
