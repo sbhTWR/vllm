@@ -919,9 +919,12 @@ def merge_seq_groups_persist(new_seq_group: SequenceGroup, old_seq_group: Sequen
     old_seq_group.first_seq.data._stage = SequenceStage.PREFILL
     old_seq_group.first_seq.status = SequenceStatus.WAITING
 
-
     # TODO: update cached tokens?
-
+    old_seq_group.first_seq.data._update_cached_all_tokens()
+    # old_seq_group.first_seq._last_output_text_offset += len(new_seq_group.first_seq.prompt)
+    old_seq_group.first_seq._last_output_text_offset = 0
+    old_seq_group.first_seq.output_text = ""
+    old_seq_group.first_seq._last_output_token_ids_offset += len(output_ids_to_append)
     old_seq_group._returning = True
 
     return old_seq_group

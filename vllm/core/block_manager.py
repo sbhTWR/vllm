@@ -175,8 +175,23 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                     (self.block_tables.keys(), seq_group.first_seq.seq_id))
         # Allocate self-attention block tables for decoder sequences
         waiting_seqs = seq_group.get_seqs(status=SequenceStatus.WAITING)
-        assert not (set(seq.seq_id for seq in waiting_seqs)
-                    & self.block_tables.keys()), "block table already exists"
+        # assert not (set(seq.seq_id for seq in waiting_seqs)
+        #             & self.block_tables.keys()), "block table already exists"
+
+        if (set(seq.seq_id for seq in waiting_seqs)
+                    & self.block_tables.keys()):
+            
+            # append_slots
+            for seq in waiting_seqs:
+                block_table = self.block_tables[seq.seq_id]
+                num_token_ids = len(block_table.get_unseen_token_ids(seq.get_token_ids()))
+                num_computed_slots = seq.data.get_num_computed_tokens()
+                
+                logger.info("[elasticswap] num_unseen_token_ids=%d num_computed_tokens=%d " 
+                                % (num_token_ids, num_computed_slots))
+                self.append_slots(seq, 0)
+
+            return 
 
         # NOTE: Here we assume that all sequences in the group have the same
         # prompt.
@@ -248,7 +263,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
     ) -> List[Tuple[int, int]]:
 
         block_table = self.block_tables[seq.seq_id]
-
+        
         block_table.append_token_ids(
             token_ids=block_table.get_unseen_token_ids(seq.get_token_ids()),
             num_lookahead_slots=num_lookahead_slots,
