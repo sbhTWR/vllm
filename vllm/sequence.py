@@ -437,6 +437,10 @@ class Sequence:
         # Used for incremental detokenization
         self.prefix_offset = 0
         self.read_offset = 0
+
+        # mark if swap is needed 
+        self.swap_in_required = False
+
         # Input + output tokens
         self.tokens: Optional[List[str]] = None
 

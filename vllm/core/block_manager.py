@@ -542,6 +542,71 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         cached in the block manager for the sequence.
         """
         return self._computed_blocks_tracker.get_num_cached_tokens(seq)
+    
+    def get_blocks_for_swap_in_elastic(self, seq: Sequence) -> Optional[List[Block]]:
+        """
+        Here we assume that all blocks are being swapped from the end of the 
+        sequence, so we collect all the blocks from the point we reach the 
+        CPU blocks range
+        """
+        cpu_blocks = None
+        if seq.seq_id not in self.block_tables:
+                return None
+        block_table = self.block_tables[seq.seq_id]
+        if block_table.blocks is not None:
+            all_blocks = block_table.blocks
+            start_index = None
+            for i, block in enumerate(all_blocks):
+                if block.block_id >= self.num_total_gpu_blocks:
+                    start_index = i
+                    break 
+            
+            if start_index:
+                cpu_blocks = all_blocks[start_index:]
+
+        return cpu_blocks
+    
+    def can_swap_in_elastic(self, seq: Sequence):
+        blocks = self.get_blocks_for_swap_in_elastic(seq)
+        if not blocks or len(blocks) == 0:
+            return AllocStatus.OK
+        
+        num_blocks_touched = len(blocks)
+        device = Device.GPU
+        if self.block_allocator.get_num_total_blocks(
+                device) < num_blocks_touched:
+            return AllocStatus.NEVER
+        elif self.block_allocator.get_num_free_blocks(
+                device) - num_blocks_touched >= self.watermark_blocks:
+            return AllocStatus.OK
+        else:
+            return AllocStatus.LATER
+
+    def swap_in_elastic(self, seq: Sequence) -> List[Tuple[int, int]]:
+        physical_block_id_mapping = []
+        blocks = self.get_blocks_for_swap_in_elastic(seq)
+        if not blocks or len(blocks) == 0:
+            return 
+        seq_swap_mapping = self.block_allocator.swap(blocks=blocks,
+                                                        src_device=Device.CPU,
+                                                        dst_device=Device.GPU)
+
+        # Refresh the block ids of the table (post-swap)
+        self.block_tables[seq.seq_id].update(blocks)
+
+        seq_physical_block_id_mapping = {
+            self.block_allocator.get_physical_block_id(
+                Device.CPU, cpu_block_id):
+            self.block_allocator.get_physical_block_id(
+                Device.GPU, gpu_block_id)
+            for cpu_block_id, gpu_block_id in seq_swap_mapping.items()
+        }
+
+        physical_block_id_mapping.extend(
+            list(seq_physical_block_id_mapping.items())
+        )
+
+        return physical_block_id_mapping
 
 
     # def _get_blocks_for_swap_in(self, seq_group: SequenceGroup,

@@ -998,6 +998,22 @@ class Scheduler:
                 num_lookahead_slots = self._get_num_lookahead_slots(
                     True, enable_chunking)
 
+            # TODO (Shubham): Check if swap is needed 
+            # If swap is needed, then check if can swap 
+            if seq_group.first_seq.swap_in_required:
+                # Check if can swap_in
+                can_swap_in = self.block_manager.can_swap_in_elastic(seq)
+
+                if can_swap_in == AllocStatus.LATER:
+                    break
+                elif can_swap_in == AllocStatus.NEVER:
+                    raise ValueError("should always be swappable")
+                
+                elif can_swap_in == AllocStatus.OK:
+                    mapping = self.block_manager.swap_in_elastic(seq)
+                    seq_group.first_seq.swap_in_required = False
+                    # TODO:(Shubham): add to swap scheduler later.
+
             # If the sequence group cannot be allocated, stop.
             can_allocate = self.block_manager.can_allocate(
                 seq_group, num_lookahead_slots=num_lookahead_slots)
