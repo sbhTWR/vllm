@@ -112,6 +112,12 @@ class BlockTable:
         """
         self._blocks.update(blocks)
 
+    def update_only_block_ids(self) -> None:
+        """Resets the table to the newly provided blocks 
+        (with their corresponding block ids)
+        """
+        self._blocks.update_only_block_ids()
+
     def append_token_ids(self,
                          token_ids: List[int],
                          num_lookahead_slots: int = 0,

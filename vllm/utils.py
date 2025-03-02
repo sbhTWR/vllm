@@ -2260,3 +2260,6 @@ def import_pynvml():
             sys.modules["pynvml"] = pynvml
             spec.loader.exec_module(pynvml)
             return pynvml
+
+def get_current_time():
+    return time.time()

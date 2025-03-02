@@ -567,7 +567,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         return cpu_blocks
     
     def can_swap_in_elastic(self, seq: Sequence):
-        blocks = self.get_blocks_for_swap_in_elastic(seq)
+        blocks = self._get_blocks_for_swap_in(seq)
         if not blocks or len(blocks) == 0:
             return AllocStatus.OK
         
@@ -584,7 +584,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
     def swap_in_elastic(self, seq: Sequence) -> List[Tuple[int, int]]:
         physical_block_id_mapping = []
-        blocks = self.get_blocks_for_swap_in_elastic(seq)
+        blocks = self._get_blocks_for_swap_in(seq)
         if not blocks or len(blocks) == 0:
             return 
         seq_swap_mapping = self.block_allocator.swap(blocks=blocks,
@@ -609,32 +609,98 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         return physical_block_id_mapping
 
 
-    # def _get_blocks_for_swap_in(self, seq_group: SequenceGroup,
-    #                          status: SequenceStatus,
-    #                          swap_in: bool = False) -> List[Block]:
-    #     """Returns the list of blocks those are touched by the seq_group
-        
-    #     Args:
-    #         sequence_group (SequenceGroup): The sequence group to swap in.
-    #         status (SequenceStatus): The status of sequence which is needed
-    #             for action. RUNNING for swap out and SWAPPED for swap in
-        
-    #     Returns:
-    #         The list of blocks those are touched by the seq_group.
-    #     """
-    #     blocks: Dict[int, List[Block]] = {}
-    #     for seq in seq_group.get_seqs(status=status):
-    #         if seq.seq_id not in self.block_tables:
-    #             return None
-    #         block_table = self.block_tables[seq.seq_id]
-    #         if block_table.blocks is not None:
-    #             filtered_blocks = []
-    #             for block in block_table.blocks:
-    #                 if block.block_id >= self.num_total_gpu_blocks:
-    #                     # cpu block
-    #                     filtered_blocks.append(block)
-    #             blocks[seq.seq_id] = filtered_blocks
+    def _get_gpu_cpu_distribution(self, seq_id) -> List[Block]:
+        cpu_blocks = []
+        gpu_blocks = []
 
-                
-    #     combined_blocks = list(chain(*blocks.values()))
-    #     return combined_blocks
+        if seq_id in self.block_tables:
+            block_table = self.block_tables[seq_id]
+            if block_table.blocks is not None:
+                for block in block_table.blocks:
+                    if block.block_id >= self.num_total_gpu_blocks:
+                        cpu_blocks.append(block)
+                    else:
+                        gpu_blocks.append(block)
+        
+        return len(gpu_blocks), len(cpu_blocks)
+    
+
+    def swap_out_passthrough(self, seq: Sequence, blocks: List[Block]) -> List[Tuple[int, int]]:
+        current_swap_mapping = self.block_allocator.swap(
+            blocks=blocks, source_device=Device.GPU, dest_device=Device.CPU)
+
+        self.block_tables[seq.seq_id].update_only_block_ids()    
+
+        block_number_mapping = {
+            self.block_allocator.get_physical_block_id(Device.GPU,
+                                                       gpu_block_id):
+            self.block_allocator.get_physical_block_id(Device.CPU,
+                                                       cpu_block_id)
+            for gpu_block_id, cpu_block_id in current_swap_mapping.items()
+        }
+        # convert to list of tuples once here
+        return list(block_number_mapping.items())
+
+
+    def num_blocks_required_to_allocate(self, 
+                     seq_group: SequenceGroup) -> AllocStatus:
+        # FIXME(woosuk): Here we assume that all sequences in the group share
+        # the same prompt. This may not be true for preempted sequences.
+
+        seq = seq_group.first_seq
+        if seq.seq_id in self.block_tables.keys():
+            logger.info('[elasticswap] block table already exists')
+            block_table = self.block_tables[seq.seq_id]
+            required_tokens = block_table.get_unseen_token_ids(seq.get_token_ids())
+            num_required_blocks = BlockTable.get_num_required_blocks(
+                required_tokens,
+                block_size=self.block_size,
+            )
+        else:
+            num_required_blocks = BlockTable.get_num_required_blocks(
+                seq.get_token_ids(),
+                block_size=self.block_size,
+            )
+
+        logger.info('[elasticswap] num_required_blocks=%s' % num_required_blocks)
+
+        if seq_group.is_encoder_decoder():
+            num_required_blocks += BlockTable.get_num_required_blocks(
+                seq_group.get_encoder_seq().get_token_ids(),
+                block_size=self.block_size,
+            )
+
+        if self.max_block_sliding_window is not None:
+            num_required_blocks = min(num_required_blocks,
+                                      self.max_block_sliding_window)
+
+        return num_required_blocks
+
+
+    def _get_blocks_for_swap_in(self, seq_group: SequenceGroup) -> List[Block]:
+        blocks: List[Block] = []
+        seq = seq_group.first_seq
+        if seq.seq_id not in self.block_tables:
+            return None
+        block_table = self.block_tables[seq.seq_id]
+        if block_table.blocks is not None:
+            for block in block_table.blocks:
+                if block.block_id >= self.num_total_gpu_blocks:
+                    # cpu block
+                    blocks.append(block)
+
+        return blocks
+    
+    def _get_blocks_remaining_for_swap_out(self, seq_group: SequenceGroup) -> List[Block]:
+        blocks: List[Block] = []
+        seq = seq_group.first_seq
+        if seq.seq_id not in self.block_tables:
+            return None
+        block_table = self.block_tables[seq.seq_id]
+        if block_table.blocks is not None:
+            for block in block_table.blocks:
+                if block.block_id < self.num_total_gpu_blocks:
+                    # gpu block
+                    blocks.append(block)
+
+        return blocks

@@ -257,6 +257,11 @@ class BlockList:
         self._block_ids = []
         for block in self._blocks:
             self._add_block_id(block.block_id)
+    
+    def update_only_block_ids(self):
+        self._block_ids = []
+        for block in self._blocks:
+            self._add_block_id(block.block_id)
 
     def append_token_ids(self, block_index: int, token_ids: List[int]) -> None:
         block = self._blocks[block_index]

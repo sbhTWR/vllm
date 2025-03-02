@@ -1501,6 +1501,12 @@ class SchedulerConfig:
     # finished request policy: "default", "pause_recompute", "pause_swap"
     finished_requests_policy: str = "default"
 
+    tb_rate: float = None
+    tb_max: int = None
+    tb_mem_pressure_adaptive: bool = True
+    memory_pressure_thresh: float = None 
+    memory_flux_fraction: float = None
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,
