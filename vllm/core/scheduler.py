@@ -1037,13 +1037,14 @@ class Scheduler:
             # kill the sequence group and exit 
             logger.info("[elasticswap] killing sequence group for user_id=%s" % user_id)
             if user_id in self.paused:
-                seq_group = self.paused.pop(user_id)
+                seq_group, _ = self.paused.pop(user_id)
                 for seq in seq_group.get_seqs():
                     seq.status = SequenceStatus.FINISHED_ABORTED
                     self.free_seq(seq)
 
                 self._free_seq_group_cross_attn_blocks(seq_group)
-                return
+            
+            return
 
         seq_group, fr_policy = self.paused[user_id]
         if fr_policy == "pause_recompute":

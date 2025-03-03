@@ -629,13 +629,14 @@ class LLMEngine:
 
         scheduled = False
         user_id = seq_group.user_id
+        req_type = seq_group.user_args['type']
         if user_id:
             for scheduler in self.scheduler:
                 if user_id in scheduler.paused:
                     scheduler.resume_seq_group(seq_group)
                     scheduled = True
 
-        if not scheduled:
+        if not scheduled and req_type != 'fin':
             # Add the sequence group to the scheduler with least unfinished seqs.
             costs = [
                 scheduler.get_num_unfinished_seq_groups()

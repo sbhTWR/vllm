@@ -134,5 +134,5 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
         if seq.is_finished():
             for scheduler in self.scheduler:
                 fr_policy = self.scheduler_config.finished_requests_policy
-                if fr_policy != 'pause_swap':
+                if fr_policy == 'pause_recompute':
                     scheduler.free_seq(seq)
