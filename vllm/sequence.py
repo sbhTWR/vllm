@@ -934,7 +934,6 @@ def merge_seq_groups_persist(new_seq_group: SequenceGroup, old_seq_group: Sequen
     return old_seq_group
     
 
-
 def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: SequenceGroup) -> SequenceGroup:
 
     request_id = new_seq_group.request_id

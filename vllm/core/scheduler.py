@@ -1030,6 +1030,21 @@ class Scheduler:
 
     def resume_seq_group(self, new_seq_group: SequenceGroup) -> None:
         user_id = new_seq_group.user_id 
+        user_args = new_seq_group.user_args
+
+        message_type = user_args.get('type', None)
+        if message_type == 'fin':
+            # kill the sequence group and exit 
+            logger.info("[elasticswap] killing sequence group for user_id=%s" % user_id)
+            if user_id in self.paused:
+                seq_group = self.paused.pop(user_id)
+                for seq in seq_group.get_seqs():
+                    seq.status = SequenceStatus.FINISHED_ABORTED
+                    self.free_seq(seq)
+
+                self._free_seq_group_cross_attn_blocks(seq_group)
+                return
+
         seq_group, fr_policy = self.paused[user_id]
         if fr_policy == "pause_recompute":
             seq_group = self.update_seq_group(new_seq_group, seq_group, fr_policy)
