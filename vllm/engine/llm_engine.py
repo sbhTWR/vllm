@@ -109,6 +109,13 @@ class SchedulerContext:
                       scheduler_outputs: SchedulerOutputs, is_async: bool,
                       is_last_step: bool,
                       is_first_step_output: Optional[bool]):
+
+        # if len(seq_group_metadata_list) != len(
+        #     scheduler_outputs.scheduled_seq_groups):
+        #     logger.info("[elasticswap][ctx] outputs: %s", outputs)
+        #     logger.info("[elasticswap][ctx] seq_group_metadata_list: %s", seq_group_metadata_list)
+        #     logger.info("[elasticswap][ctx] scheduler_outputs: %s", scheduler_outputs)
+
         self.output_queue.append(
             OutputData(outputs=outputs,
                        seq_group_metadata_list=seq_group_metadata_list,
@@ -1010,6 +1017,7 @@ class LLMEngine:
         if len(ctx.output_queue) == 0:
             return None
 
+
         # Get pending async postprocessor
         if request_id:
             # When we process only one request, no pop is required
@@ -1017,9 +1025,19 @@ class LLMEngine:
             (outputs, seq_group_metadata_list, scheduler_outputs, is_async,
              is_last_step, is_first_step_output, skip) = ctx.output_queue[0]
         else:
+            # print("[elasticswap] ctx.output_queue: %s" % ctx.output_queue)
             (outputs, seq_group_metadata_list, scheduler_outputs, is_async,
              is_last_step, is_first_step_output,
              skip) = ctx.output_queue.popleft()
+
+        if len(seq_group_metadata_list) != len(
+            scheduler_outputs.scheduled_seq_groups):
+
+            # logger.info("[elasticswap] seq_group_metadata_list: %s" % seq_group_metadata_list)
+            # logger.info("[elasticswap] scheduler_outputs: %s" % scheduler_outputs)
+
+            self._process_model_outputs(ctx=ctx)
+            return
 
         # Sanity check
         assert len(seq_group_metadata_list) == len(
@@ -1399,6 +1417,9 @@ class LLMEngine:
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
 
+            # if len(scheduler_outputs.blocks_to_swap_out) > 0:
+            #     logger.info("[elasticswap] execute_model_req: %s", execute_model_req)
+
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
                     virtual_engine]
@@ -1434,6 +1455,11 @@ class LLMEngine:
             is_first_step_output: bool = False if not seq_group_metadata_list \
                 else seq_group_metadata_list[0].state.num_steps == 1
 
+            if len(seq_group_metadata_list) != len(
+                scheduler_outputs.scheduled_seq_groups):
+                logger.info("[elasticswap][ctx] outputs: %s" % outputs)
+                logger.info("[elasticswap][ctx] seq_group_metadata_list: %s" % seq_group_metadata_list)
+                logger.info("[elasticswap][ctx] scheduler_outputs: %s" % scheduler_outputs)
             # Add results to the output_queue
             ctx.append_output(outputs=outputs,
                               seq_group_metadata_list=seq_group_metadata_list,

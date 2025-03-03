@@ -567,7 +567,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         return cpu_blocks
     
     def can_swap_in_elastic(self, seq: Sequence):
-        blocks = self._get_blocks_for_swap_in(seq)
+        blocks = self._get_blocks_for_swap_in_seq(seq)
         if not blocks or len(blocks) == 0:
             return AllocStatus.OK
         
@@ -584,7 +584,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
     def swap_in_elastic(self, seq: Sequence) -> List[Tuple[int, int]]:
         physical_block_id_mapping = []
-        blocks = self._get_blocks_for_swap_in(seq)
+        blocks = self._get_blocks_for_swap_in_seq(seq)
+        logger.info('[elasticswap] blocks_to_swap_in=%s' % blocks)
         if not blocks or len(blocks) == 0:
             return 
         seq_swap_mapping = self.block_allocator.swap(blocks=blocks,
@@ -626,8 +627,9 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
     
 
     def swap_out_passthrough(self, seq: Sequence, blocks: List[Block]) -> List[Tuple[int, int]]:
-        current_swap_mapping = self.block_allocator.swap(
-            blocks=blocks, source_device=Device.GPU, dest_device=Device.CPU)
+        current_swap_mapping = self.block_allocator.swap(blocks=blocks,
+                                                         src_device=Device.GPU,
+                                                         dst_device=Device.CPU)
 
         self.block_tables[seq.seq_id].update_only_block_ids()    
 
@@ -676,6 +678,19 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         return num_required_blocks
 
+
+    def _get_blocks_for_swap_in_seq(self, seq: Sequence) -> List[Block]:
+        blocks: List[Block] = []
+        if seq.seq_id not in self.block_tables:
+            return None
+        block_table = self.block_tables[seq.seq_id]
+        if block_table.blocks is not None:
+            for block in block_table.blocks:
+                if block.block_id >= self.num_total_gpu_blocks:
+                    # cpu block
+                    blocks.append(block)
+
+        return blocks
 
     def _get_blocks_for_swap_in(self, seq_group: SequenceGroup) -> List[Block]:
         blocks: List[Block] = []

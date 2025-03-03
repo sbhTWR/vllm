@@ -396,11 +396,6 @@ class SwapScheduler:
                 # self.pop_on_next_iteration)
         
         self.engine_iteration_in_progress = False 
-        while self.pop_on_next_iteration:
-            request_id = self.pop_on_next_iteration.pop()
-            # print("removing request %s" % request_id)
-            # input()
-            self.pending.pop(request_id)
 
     def schedule_resolve_deadlock(self):
         self.do_schedule_deadlock_resolve = True
@@ -494,7 +489,6 @@ class SwapScheduler:
 
                     num_blocks = len(remaining_blocks)
                     blocks_to_swap_out += self.scheduler.block_manager.swap_out_passthrough(seq_group.first_seq, remaining_blocks)
-
                     blocks_scheduled += num_blocks
 
                     if blocks_scheduled >= required_num_blocks:
@@ -537,6 +531,11 @@ class SwapScheduler:
         assert user_id not in self.pending, "user_id already in self.pending!"
         self.pending[swap_request.seq_group.user_id] = swap_request
         user_id = swap_request.seq_group.user_id
+
+        logger.info("[swap_scheduler] adding swap request for user_id=%s " 
+                    "blocks_to_swap=%d direction=%s" 
+                    % (user_id, len(swap_request.blocks_to_swap), swap_request.direction))
+
         # if request_id == '0':
         #     print('adding request=%s' % request_id)
         #     print('pending', self.pending.keys())
@@ -544,11 +543,20 @@ class SwapScheduler:
         #     print('returning', self.scheduler.returning)
         #     input()
 
+    def pending_requests(self) -> bool:
+        return len(self.pending) > 0
+
     def schedule(self, 
                  blocks_to_swap_in: list, 
                  blocks_to_swap_out: list,
                  finished_seq_groups: list):
         
+        while self.pop_on_next_iteration:
+            user_id = self.pop_on_next_iteration.pop()
+            # print("removing request %s" % request_id)
+            # input()
+            self.pending.pop(user_id)
+
         tb_requests = []
         pending_requests = list(self.pending.values())
         # if len(self.pending.keys()) > 1:
@@ -579,12 +587,12 @@ class SwapScheduler:
                 raise ValueError("invalid swap scheduler policy: %s" 
                                 % self.swap_scheduler_policy)
 
-        self.schedule_swap_tb(
-            tb_requests=tb_requests,
-            blocks_to_swap_in=blocks_to_swap_in,
-            blocks_to_swap_out=blocks_to_swap_out,
-            finished_seq_groups=finished_seq_groups
-        )
+        # self.schedule_swap_tb(
+        #     tb_requests=tb_requests,
+        #     blocks_to_swap_in=blocks_to_swap_in,
+        #     blocks_to_swap_out=blocks_to_swap_out,
+        #     finished_seq_groups=finished_seq_groups
+        # )
 
         if self.do_schedule_deadlock_resolve:
             num_blocks_swapped_for_deadlock = self.resolve_deadlock(
@@ -694,7 +702,7 @@ class SwapScheduler:
             #     ))
             ele = (
                 -self.calculate_memory_flux(swap_request), 
-                int(swap_request.seq_group.request_id), 
+                int(swap_request.seq_group.user_id), 
                 swap_request
             )
             # print(ele[0])
@@ -739,7 +747,7 @@ class SwapScheduler:
             if num_blocks_remaining == 0:
                 # print('completed')
                 finished_seq_groups.append(swap_request.seq_group)
-                self.pop_on_next_iteration.add(swap_request.seq_group.request_id)
+                self.pop_on_next_iteration.add(swap_request.seq_group.user_id)
 
             if self.token_bucket == 0:
                 break 
@@ -768,19 +776,30 @@ class SwapScheduler:
                           finished_seq_groups: list
                         ):
         
+
         if swap_request.direction == SwapSchedulerDirection.SWAP_OUT:
-            blocks_to_swap_out += swap_request.blocks_to_swap
-        
+            # blocks_to_swap_out += swap_request.blocks_to_swap
+            blocks_to_swap_out += self.scheduler.block_manager.swap_out_passthrough(
+                swap_request.seq_group.first_seq, swap_request.blocks_to_swap)
+
+            # logger.info("[swap_scheduler] scheduling swap all for user_id=%s "
+            #             "blocks_to_swap_out=%s"
+            #             % (swap_request.seq_group.user_id, blocks_to_swap_out))
+
         elif swap_request.direction == SwapSchedulerDirection.SWAP_IN:
-            blocks_to_swap_in += swap_request.blocks_to_swap
+            blocks_to_swap_in += self.scheduler.block_manager.swap_in(swap_request.seq_group)
         
         else:
             raise ValueError("invalid swap scheduler direction: %s" 
                                 % swap_request.direction)
         
         finished_seq_groups.append(swap_request.seq_group)
-        self.pop_on_next_iteration.add(swap_request.seq_group.request_id)
+        self.pop_on_next_iteration.add(swap_request.seq_group.user_id)
         # self.pending.pop(swap_request.seq_group.request_id)
+
+        logger.info("[swap_scheduler] scheduling swap all for user_id=%s "
+                    "blocks_to_swap_out=%d" 
+                    % (swap_request.seq_group.user_id, len(blocks_to_swap_out)))
     
     def schedule_swap_exponential(self, 
                         swap_request: SwapScheduleRequest,
@@ -1083,7 +1102,7 @@ class Scheduler:
 
     def has_unfinished_seqs(self) -> bool:
         return len(self.waiting) != 0 or len(self.running) != 0 or len(
-            self.swapped) != 0
+            self.swapped) != 0 or self.swap_scheduler.pending_requests()
 
     def get_prefix_cache_hit_rate(self, device: Device) -> float:
         return self.block_manager.get_prefix_cache_hit_rate(device)
@@ -1753,8 +1772,10 @@ class Scheduler:
             finished_seq_groups=finished_seq_groups
         )
 
+        # logger.info(
+        #         "[elasticswap] Paused swap out: %s", paused_blocks_to_swap_out)
 
-        return SchedulerOutputs(
+        sched_outputs = SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
             num_prefill_groups=num_prefill_groups,
             num_batched_tokens=budget.num_batched_tokens +
@@ -1767,6 +1788,11 @@ class Scheduler:
             running_queue_size=len(self.running),
             preempted=preempted,
         )
+
+        # if len(paused_blocks_to_swap_out) > 0:
+        #     logger.info("[elasticswap] sched_outputs: %s" % sched_outputs)
+
+        return sched_outputs
 
     def _schedule_chunked_prefill(self) -> SchedulerOutputs:
         """Schedule queued requests.
@@ -1857,6 +1883,10 @@ class Scheduler:
             blocks_to_swap_out=paused_blocks_to_swap_out,
             finished_seq_groups=finished_seq_groups
         )
+
+        
+        logger.info(
+                "[elasticswap] Paused swap out: %s", paused_blocks_to_swap_out)
 
         return SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
@@ -2066,7 +2096,12 @@ class Scheduler:
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id
 
+        # if len(seq_group_metadata_list) != len(
+        #     scheduler_outputs.scheduled_seq_groups):
+        #     logger.info("[elasticswap][scheduler] scheduler_outputs: %s" % scheduler_outputs)
+        #     logger.info("[elasticswap][scheduler] seq_group_metadata_list: %s" % seq_group_metadata_list)
         # Return results
+
         return (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc)
 
@@ -2124,11 +2159,14 @@ class Scheduler:
             self.add_seq_group_to_paused(seq_group, fr_policy)
 
             blocks_to_swap_pending = self.block_manager._get_blocks_remaining_for_swap_out(seq_group)
+            
+            logger.info('[elasticswap] swapping out %d blocks' % len(blocks_to_swap_pending))
+
             self.swap_scheduler.add_sequence(
                 SwapScheduleRequest(
                     policy=SwapSchedulerPolicy.SWAP_ALL,
                     seq_group=seq_group,
-                    blocks_to_swap_pending=blocks_to_swap_pending,
+                    blocks_to_swap=blocks_to_swap_pending,
                     device=SwapSchedulerDevice.CPU,
                     direction=SwapSchedulerDirection.SWAP_OUT
                 )
@@ -2144,6 +2182,7 @@ class Scheduler:
             if not seq_group.is_finished():
                 remaining.append(seq_group)
 
+        # logger.info("free_finished_seq_groups: seq_groups remaining = %s" % remaining)
         self.running = remaining
 
         # Handle async stopped sequence groups
