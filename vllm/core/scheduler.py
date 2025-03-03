@@ -1017,6 +1017,8 @@ class Scheduler:
             seq_group = merge_seq_groups_recompute(new_seq_group, seq_group)
         elif fr_policy == "pause_swap":
             seq_group = merge_seq_groups_persist(new_seq_group, seq_group)
+        elif fr_policy == "pause_persist":
+            seq_group = merge_seq_groups_persist(new_seq_group, seq_group)
         else:
             raise ValueError("invalid fr_policy=%s" % fr_policy)
 
@@ -1034,6 +1036,11 @@ class Scheduler:
             self.requeue_seq_group(seq_group)
         
         elif fr_policy == "pause_swap":
+            seq_group = self.update_seq_group(new_seq_group, seq_group, fr_policy)
+            self.swap_scheduler.interrupt_swap_schedule_for_request(seq_group)
+            self.requeue_seq_group(seq_group)
+        
+        elif fr_policy == "pause_persist":
             seq_group = self.update_seq_group(new_seq_group, seq_group, fr_policy)
             self.requeue_seq_group(seq_group)
         else:
@@ -2171,6 +2178,10 @@ class Scheduler:
                     direction=SwapSchedulerDirection.SWAP_OUT
                 )
             )
+        
+        elif fr_policy == "pause_persist":
+            # Do not free and add the seq_group to paused as is 
+            self.add_seq_group_to_paused(seq_group, fr_policy)
 
         else:
             raise ValueError("Invalid finished_requests_policy!") 

@@ -909,7 +909,7 @@ class EngineArgs:
         parser.add_argument(
             '--fr-policy',
             dest="finished_requests_policy",
-            choices=['default', 'pause_recompute', "pause_swap"],
+            choices=['default', 'pause_recompute', "pause_swap", "pause_persist"],
             default="default",
             help='TODO')
 
