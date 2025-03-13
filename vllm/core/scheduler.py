@@ -1028,7 +1028,7 @@ class Scheduler:
         # TODO add prio requeue logic here
         self.add_seq_group(seq_group)
 
-    def resume_seq_group(self, new_seq_group: SequenceGroup) -> None:
+    def resume_seq_group(self, new_seq_group: SequenceGroup) -> Optional[SequenceGroup]:
         user_id = new_seq_group.user_id 
         user_args = new_seq_group.user_args
 
@@ -1043,8 +1043,7 @@ class Scheduler:
                     self.free_seq(seq)
 
                 self._free_seq_group_cross_attn_blocks(seq_group)
-            
-            return
+            return seq_group
 
         seq_group, fr_policy = self.paused[user_id]
         if fr_policy == "pause_recompute":

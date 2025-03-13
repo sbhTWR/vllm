@@ -185,10 +185,11 @@ class EngineArgs:
     disable_logprobs_during_spec_decoding: Optional[bool] = None
 
     otlp_traces_endpoint: Optional[str] = None
-    collect_detailed_traces: Optional[str] = None
+    collect_detailed_traces: Optional[str] = "all"
     disable_async_output_proc: bool = False
     scheduling_policy: Literal["fcfs", "priority"] = "fcfs"
     finished_requests_policy: Literal["default", "pause_recompute", "pause_swap"] = "default"
+    retrify_log_file: str = None
 
     override_neuron_config: Optional[Dict[str, Any]] = None
     override_pooler_config: Optional[PoolerConfig] = None
@@ -881,7 +882,7 @@ class EngineArgs:
         parser.add_argument(
             '--collect-detailed-traces',
             type=str,
-            default=None,
+            default="all",
             help="Valid choices are " +
             ",".join(ALLOWED_DETAILED_TRACE_MODULES) +
             ". It makes sense to set this only if ``--otlp-traces-endpoint`` is"
@@ -912,6 +913,13 @@ class EngineArgs:
             choices=['default', 'pause_recompute', "pause_swap", "pause_persist"],
             default="default",
             help='TODO')
+    
+        parser.add_argument(
+            '--retrify-log-file',
+            dest="retrify_log_file",
+            type=str,
+            default=None,
+            help='retrify log file name')
 
         parser.add_argument(
             '--override-neuron-config',
@@ -1237,7 +1245,9 @@ class EngineArgs:
             send_delta_data=(envs.VLLM_USE_RAY_SPMD_WORKER
                              and parallel_config.use_ray),
             policy=self.scheduling_policy,
-            finished_requests_policy=self.finished_requests_policy)
+            finished_requests_policy=self.finished_requests_policy,
+            csv_logger_file_name=self.retrify_log_file,
+            )
         lora_config = LoRAConfig(
             bias_enabled=self.enable_lora_bias,
             max_lora_rank=self.max_lora_rank,

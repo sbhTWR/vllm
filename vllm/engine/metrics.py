@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import time
+import csv
 from typing import TYPE_CHECKING
 from typing import Counter as CollectionsCounter
 from typing import Dict, List, Optional, Type, Union, cast
@@ -503,6 +504,115 @@ class LoggingStatLogger(StatLoggerBase):
     def info(self, type: str, obj: SupportsMetricsInfo) -> None:
         raise NotImplementedError
 
+class CsvStatLogger(StatLoggerBase):
+    """LoggingStatLogger is used in LLMEngine to log to a Csv file."""
+    def __init__(self, local_interval: float, vllm_config: VllmConfig) -> None:
+        super().__init__(local_interval, vllm_config)
+        self.file_name = vllm_config.scheduler_config.csv_logger_file_name
+        self.file_handle = open(self.file_name, 'w')
+        self.log_csv = csv.writer(self.file_handle)
+
+        self.num_prompt_tokens: List[int] = []
+        self.num_generation_tokens: List[int] = []
+        self.last_local_log = time.time()
+        self.local_interval = local_interval
+
+        # write header 
+        header = ["timestamp", "prompt_throughput_avg", "generation_throughput_avg", 
+                   "num_running_reqs", "num_swapped_reqs", "num_waiting_reqs",
+                   "gpu_cache_usage", "cpu_cache_usage", "ttft_avg", "tbt_avg",
+                   "swap_t", "queue_t", "model_forward_t", "model_exec_t"]
+
+        self.log_csv.writerow(header)
+
+    def info(self, type: str, obj: SupportsMetricsInfo) -> None:
+        raise NotImplementedError
+
+    def done(self):
+        self.file_handle.flush()
+        self.file_handle.close()
+
+    def log(self, stats: Stats) -> None:
+        """Called by LLMEngine.
+           Logs to Csv every self.local_interval seconds."""
+
+        # Save tracked stats for token counters.
+        self.num_prompt_tokens.append(stats.num_prompt_tokens_iter)
+        self.num_generation_tokens.append(stats.num_generation_tokens_iter)
+
+        logger.debug('local interval elapsed = %s' % local_interval_elapsed(stats.now, self.last_local_log,
+                                  self.local_interval))
+
+        # Log locally every local_interval seconds.
+        if local_interval_elapsed(stats.now, self.last_local_log,
+                                  self.local_interval):
+            # Compute summary metrics for tracked stats (and log them
+            # to promethus if applicable).
+            prompt_throughput = get_throughput(self.num_prompt_tokens,
+                                               now=stats.now,
+                                               last_log=self.last_local_log)
+            generation_throughput = get_throughput(
+                self.num_generation_tokens,
+                now=stats.now,
+                last_log=self.last_local_log)
+
+            # Log to csv.
+            # print(
+            #     "Avg prompt throughput: %.1f tokens/s, "
+            #     "Avg generation throughput: %.1f tokens/s, "
+            #     "Running: %d reqs, Swapped: %d reqs, "
+            #     "Pending: %d reqs, GPU KV cache usage: %.1f%%, "
+            #     "CPU KV cache usage: %.1f%%." % (
+            #     prompt_throughput,
+            #     generation_throughput,
+            #     stats.num_running_sys,
+            #     stats.num_swapped_sys,
+            #     stats.num_waiting_sys,
+            #     stats.gpu_cache_usage_sys * 100,
+            #     stats.cpu_cache_usage_sys * 100)
+            # )
+            now = time.time()
+            prompt_throughput_avg = prompt_throughput
+            generation_throughput_avg = generation_throughput
+            num_running_reqs = stats.num_running_sys
+            num_swapped_reqs = stats.num_swapped_sys
+            num_waiting_reqs = stats.num_waiting_sys
+            gpu_cache_usage = stats.gpu_cache_usage_sys
+            cpu_cache_usage = stats.cpu_cache_usage_sys
+            ttft_avg = float(np.mean(stats.time_to_first_tokens_iter))
+            time_per_token_avg = float(np.mean(stats.time_per_output_tokens_iter))
+
+            # swap times 
+            swap_times = stats.cache_ops_time_requests
+            swap_times_len = len(swap_times)
+            swap_t = sum(swap_times) / swap_times_len if swap_times_len != 0 else 0 
+
+            scheduled_times = None
+            sched_t = None
+
+            queue_times = stats.time_in_queue_requests
+            queue_times_len = len(queue_times)
+            queue_t = sum(queue_times) / queue_times_len if queue_times_len != 0 else 0
+
+            model_forward_times = stats.model_forward_time_requests
+            model_forward_times_len = len(model_forward_times)
+            model_forward_t = sum(model_forward_times) / model_forward_times_len if model_forward_times_len != 0 else 0
+
+            model_exec_times = stats.model_execute_time_requests
+            model_exec_times_len = len(model_exec_times) 
+            model_exec_t = sum(model_exec_times) / model_exec_times_len if model_exec_times_len != 0 else 0
+
+            row = [now, prompt_throughput_avg, generation_throughput_avg, 
+                   num_running_reqs, num_swapped_reqs, num_waiting_reqs,
+                   gpu_cache_usage, cpu_cache_usage, ttft_avg, time_per_token_avg,
+                   swap_t, queue_t, model_forward_t, model_exec_t]
+
+            self.log_csv.writerow(row)
+            self.file_handle.flush()
+            # Reset tracked stats for next interval.
+            self.num_prompt_tokens = []
+            self.num_generation_tokens = []
+            self.last_local_log = stats.now
 
 class PrometheusStatLogger(StatLoggerBase):
     """PrometheusStatLogger is used LLMEngine to log to Promethus."""

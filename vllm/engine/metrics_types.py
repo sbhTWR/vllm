@@ -56,6 +56,7 @@ class Stats:
     time_in_queue_requests: List[float]
     model_forward_time_requests: List[float]
     model_execute_time_requests: List[float]
+    cache_ops_time_requests: List[float]
     #   Metadata
     num_prompt_tokens_requests: List[int]
     num_generation_tokens_requests: List[int]

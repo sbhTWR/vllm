@@ -1507,6 +1507,8 @@ class SchedulerConfig:
     memory_pressure_thresh: float = None 
     memory_flux_fraction: float = None
 
+    csv_logger_file_name: str = "vllm_retrify_log.csv"
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,

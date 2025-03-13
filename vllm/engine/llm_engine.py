@@ -126,6 +126,21 @@ class SchedulerContext:
                        skip=[]))
 
 
+
+@dataclass
+class EngineIterationStats:
+    schedule_time: float = None
+    swap_time: float = None
+    execute_time: float = None
+
+class RetrifyMetrics:
+    def __init__(self):
+        self.engine_iteration_stats: List[EngineIterationStats] = []
+    
+    def append_engine_iteration(self, stat: EngineIterationStats):
+        self.engine_iteration_stats.append(stat)
+
+
 class LLMEngine:
     """An LLM engine that receives requests and generates texts.
 
@@ -223,6 +238,8 @@ class LLMEngine:
         use_cached_outputs: bool = False,
     ) -> None:
 
+        self.retrify_metrics = RetrifyMetrics()
+        self.retrify_finished_seq_groups: List[SequenceGroup] = []
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
         self.cache_config = vllm_config.cache_config
@@ -372,7 +389,8 @@ class LLMEngine:
                 # before prometheus_client is imported.
                 # See https://prometheus.github.io/client_python/multiprocess/
                 from vllm.engine.metrics import (LoggingStatLogger,
-                                                 PrometheusStatLogger)
+                                                 PrometheusStatLogger,
+                                                 CsvStatLogger)
 
                 self.stat_loggers = {
                     "logging":
@@ -385,6 +403,11 @@ class LLMEngine:
                         labels=dict(
                             model_name=self.model_config.served_model_name),
                         vllm_config=vllm_config),
+                    "csv_logger":
+                    CsvStatLogger(
+                        local_interval=_LOCAL_LOGGING_INTERVAL_SEC,
+                        vllm_config=vllm_config
+                    ),
                 }
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
@@ -633,7 +656,9 @@ class LLMEngine:
         if user_id:
             for scheduler in self.scheduler:
                 if user_id in scheduler.paused:
-                    scheduler.resume_seq_group(seq_group)
+                    finished_seq_group = scheduler.resume_seq_group(seq_group)
+                    if finished_seq_group:
+                        self.retrify_finished_seq_groups.append(finished_seq_group)
                     scheduled = True
 
         if not scheduled and req_type != 'fin':
@@ -1033,7 +1058,8 @@ class LLMEngine:
 
         if len(seq_group_metadata_list) != len(
             scheduler_outputs.scheduled_seq_groups):
-
+            for o in outputs:
+                logger.info("[elasticswap][ctx] outputs: %f" % o.cache_ops_time)
             # logger.info("[elasticswap] seq_group_metadata_list: %s" % seq_group_metadata_list)
             # logger.info("[elasticswap] scheduler_outputs: %s" % scheduler_outputs)
 
@@ -1137,6 +1163,13 @@ class LLMEngine:
                         else:
                             seq_group.metrics.model_execute_time = (
                                 o.model_execute_time)
+                        
+                        if seq_group.metrics.cache_ops_time is not None:
+                            seq_group.metrics.cache_ops_time += (
+                                o.cache_ops_time or 0)
+                        else:
+                            seq_group.metrics.cache_ops_time = (
+                                o.cache_ops_time)
 
             if self.model_config.runner_type == "pooling":
                 self._process_sequence_group_outputs(seq_group, output)
@@ -1349,6 +1382,9 @@ class LLMEngine:
                 "Pipeline parallelism is only supported through AsyncLLMEngine "
                 "as performance will be severely degraded otherwise.")
 
+
+        schedule_start_time = time.perf_counter()
+
         # For llm_engine, there is no pipeline parallel support, so the engine
         # used is always 0.
         virtual_engine = 0
@@ -1397,6 +1433,9 @@ class LLMEngine:
         assert seq_group_metadata_list is not None
         assert scheduler_outputs is not None
 
+
+        # execution_time_total = time.perf_counter()
+
         if not scheduler_outputs.is_empty():
 
             # Check if we have a cached last_output from the previous iteration.
@@ -1439,7 +1478,7 @@ class LLMEngine:
                 self._process_model_outputs(ctx=ctx)
             # No outputs in this case
             outputs = []
-
+            
         # Finish the current step for all the sequence groups.
         if self.scheduler_config.is_multi_step:
             for seq_group in seq_group_metadata_list:
@@ -1663,6 +1702,7 @@ class LLMEngine:
         time_in_queue_requests: List[float] = []
         model_forward_time_requests: List[float] = []
         model_execute_time_requests: List[float] = []
+        cache_ops_time_requests: List[float] = []
         #   Metadata
         num_prompt_tokens_requests: List[int] = []
         num_generation_tokens_requests: List[int] = []
@@ -1779,6 +1819,9 @@ class LLMEngine:
                     if seq_group.metrics.model_execute_time is not None:
                         model_execute_time_requests.append(
                             seq_group.metrics.model_execute_time * 1000)
+                    if seq_group.metrics.cache_ops_time is not None:
+                        cache_ops_time_requests.append(
+                            seq_group.metrics.cache_ops_time * 1000)
                     # Metadata
                     num_prompt_tokens_requests.append(
                         len(seq_group.prompt_token_ids))
@@ -1797,6 +1840,56 @@ class LLMEngine:
                         SequenceStatus.get_finished_reason(seq.status)
                         for seq in seq_group.get_finished_seqs()
                     ])
+            
+            for seq_group in self.retrify_finished_seq_groups:
+                if seq_group.is_finished():
+                    # Latency timings
+                    time_e2e_requests.append(now -
+                                             seq_group.metrics.arrival_time)
+                    if (seq_group.metrics.first_scheduled_time is not None and
+                            seq_group.metrics.first_token_time is not None):
+                        time_queue_requests.append(
+                            seq_group.metrics.first_scheduled_time -
+                            seq_group.metrics.arrival_time)
+                        time_prefill_requests.append(
+                            seq_group.metrics.first_token_time -
+                            seq_group.metrics.first_scheduled_time)
+                        time_decode_requests.append(
+                            now - seq_group.metrics.first_token_time)
+                        time_inference_requests.append(
+                            now - seq_group.metrics.first_scheduled_time)
+                    if seq_group.metrics.time_in_queue is not None:
+                        time_in_queue_requests.append(
+                            seq_group.metrics.time_in_queue)
+                    if seq_group.metrics.model_forward_time is not None:
+                        model_forward_time_requests.append(
+                            seq_group.metrics.model_forward_time)
+                    if seq_group.metrics.model_execute_time is not None:
+                        model_execute_time_requests.append(
+                            seq_group.metrics.model_execute_time * 1000)
+                    if seq_group.metrics.cache_ops_time is not None:
+                        cache_ops_time_requests.append(
+                            seq_group.metrics.cache_ops_time * 1000)
+                    # Metadata
+                    num_prompt_tokens_requests.append(
+                        len(seq_group.prompt_token_ids))
+                    num_generation_tokens_requests.extend([
+                        seq.get_output_len()
+                        for seq in seq_group.get_finished_seqs()
+                    ])
+                    max_num_generation_tokens_requests.append(
+                        max(seq.get_output_len()
+                            for seq in seq_group.get_seqs()))
+                    if seq_group.sampling_params is not None:
+                        n_requests.append(seq_group.sampling_params.n)
+                        max_tokens_requests.append(
+                            seq_group.sampling_params.max_tokens)
+                    finished_reason_requests.extend([
+                        SequenceStatus.get_finished_reason(seq.status)
+                        for seq in seq_group.get_finished_seqs()
+                    ])
+            
+            self.retrify_finished_seq_groups = []
 
             # Number of generation tokens.
             #   num_batched_tokens equals the number of prompt_tokens plus the
@@ -1850,6 +1943,7 @@ class LLMEngine:
             time_in_queue_requests=time_in_queue_requests,
             model_forward_time_requests=model_forward_time_requests,
             model_execute_time_requests=model_execute_time_requests,
+            cache_ops_time_requests=cache_ops_time_requests,
             #   Metadata
             num_prompt_tokens_requests=num_prompt_tokens_requests,
             num_generation_tokens_requests=num_generation_tokens_requests,

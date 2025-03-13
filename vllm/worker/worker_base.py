@@ -393,7 +393,14 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         model_input, worker_input, kwargs = inputs
         num_steps = worker_input.num_steps
 
+        """
+        Sync here for accurate swapping times.
+        """
+        cache_ops_start_t = time.perf_counter()
+        torch.cuda.synchronize()
         self.execute_worker(worker_input)
+        torch.cuda.synchronize()
+        cache_ops_time = time.perf_counter() - cache_ops_start_t
 
         # If there is no input, we don't need to execute the model.
         if worker_input.num_seq_groups == 0:
@@ -401,6 +408,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
 
         intermediate_tensors = None
         orig_model_execute_time = 0.0
+        orig_cache_ops_time = 0.0
         if not get_pp_group().is_first_rank:
             intermediate_tensors = IntermediateTensors(
                 get_pp_group().recv_tensor_dict(
@@ -409,6 +417,8 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     and self.observability_config.collect_model_execute_time):
                 orig_model_execute_time = intermediate_tensors.tensors.get(
                     "model_execute_time", torch.tensor(0)).item()
+            orig_cache_ops_time = intermediate_tensors.tensors.get(
+                    "cache_ops_time", torch.tensor(0)).item()
 
         output = self.model_runner.execute_model(
             model_input=model_input,
@@ -427,15 +437,22 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     and self.observability_config.collect_model_execute_time):
                 output.tensors["model_execute_time"] = torch.tensor(
                     model_execute_time + orig_model_execute_time)
+            
+            output.tensors["cache_ops_time"] = torch.tensor(
+                    cache_ops_time + orig_cache_ops_time)
+
             get_pp_group().send_tensor_dict(output.tensors,
                                             all_gather_group=get_tp_group())
             return [None]
         if (self.observability_config is not None
                 and self.observability_config.collect_model_execute_time
                 and output is not None):
+            # logger.info("[elasticswap] >> observability config is not none")
             for o in output:
                 o.model_execute_time = (orig_model_execute_time +
                                         model_execute_time)
+                
+                o.cache_ops_time = (orig_cache_ops_time + cache_ops_time)
 
         # output is List[SamplerOutput]
         return output

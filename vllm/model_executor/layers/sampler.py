@@ -128,6 +128,9 @@ class SamplerOutput(
     # block/sync across workers, cpu-gpu sync time and sampling time.
     model_execute_time: Optional[float] = None
 
+    # Swap times 
+    cache_ops_time: Optional[float] = None
+
     def __getitem__(self, idx: int) -> CompletionSequenceGroupOutput:
         return self.outputs[idx]
 

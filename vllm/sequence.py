@@ -119,6 +119,7 @@ class RequestMetrics:
                             workers, cpu-gpu sync time and sampling time.
     """
     arrival_time: float
+    last_arrival_time: float
     last_token_time: float
     first_scheduled_time: Optional[float]
     first_token_time: Optional[float]
@@ -127,6 +128,7 @@ class RequestMetrics:
     scheduler_time: Optional[float] = None
     model_forward_time: Optional[float] = None
     model_execute_time: Optional[float] = None
+    cache_ops_time: Optional[float] = None
 
 
 class SequenceDataDelta(
@@ -675,10 +677,11 @@ class SequenceGroup:
 
         self.sampling_params = sampling_params
         self.metrics = RequestMetrics(arrival_time=arrival_time,
+                                      last_arrival_time=arrival_time,
                                       last_token_time=arrival_time,
                                       first_scheduled_time=None,
                                       first_token_time=None,
-                                      time_in_queue=None)
+                                      time_in_queue=0.0)
         self.last_token_latency = 0.0
         self.lora_request = lora_request
         self.prompt_logprobs: Optional[PromptLogprobs] = None
@@ -828,7 +831,7 @@ class SequenceGroup:
         level timings."""
         if self.metrics.first_scheduled_time is None:
             self.metrics.first_scheduled_time = time
-            self.metrics.time_in_queue = time - self.metrics.arrival_time
+            self.metrics.time_in_queue += time - self.metrics.last_arrival_time
 
     def set_finished_time(self, time: Optional[float]) -> None:
         """Sets the finished time for Request level timings."""
@@ -930,12 +933,14 @@ def merge_seq_groups_persist(new_seq_group: SequenceGroup, old_seq_group: Sequen
     old_seq_group.first_seq.output_text = ""
     old_seq_group.first_seq._last_output_token_ids_offset += len(output_ids_to_append)
     old_seq_group._returning = True
+    old_seq_group.metrics.last_arrival_time = new_seq_group.metrics.arrival_time
 
     return old_seq_group
     
 
 def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: SequenceGroup) -> SequenceGroup:
 
+    old_metrics = old_seq_group.metrics
     request_id = new_seq_group.request_id
     sampling_params = new_seq_group.sampling_params
     pooling_params = new_seq_group.pooling_params
@@ -997,6 +1002,8 @@ def merge_seq_groups_recompute(new_seq_group: SequenceGroup, old_seq_group: Sequ
             user_args=user_args,)
     
     merged_seq_group._returning = True
+    merged_seq_group.metrics = old_metrics
+    merged_seq_group.metrics.last_arrival_time = new_seq_group.metrics.arrival_time
 
     return merged_seq_group
 

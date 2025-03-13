@@ -326,7 +326,7 @@ class _AsyncLLMEngine(LLMEngine):
         assert scheduler_outputs is not None
 
         if not scheduler_outputs.is_empty():
-
+            
             # Check if we have a cached last_output from the previous iteration.
             # For supporting PP this is probably the best way to pass the
             # sampled_token_ids, as a separate broadcast over all the PP stages
