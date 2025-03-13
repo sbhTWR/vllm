@@ -1703,6 +1703,7 @@ class LLMEngine:
         model_forward_time_requests: List[float] = []
         model_execute_time_requests: List[float] = []
         cache_ops_time_requests: List[float] = []
+        scheduler_time_requests: List[float] = []
         #   Metadata
         num_prompt_tokens_requests: List[int] = []
         num_generation_tokens_requests: List[int] = []
@@ -1860,7 +1861,7 @@ class LLMEngine:
                             now - seq_group.metrics.first_scheduled_time)
                     if seq_group.metrics.time_in_queue is not None:
                         time_in_queue_requests.append(
-                            seq_group.metrics.time_in_queue)
+                            seq_group.metrics.time_in_queue * 1000)
                     if seq_group.metrics.model_forward_time is not None:
                         model_forward_time_requests.append(
                             seq_group.metrics.model_forward_time)
@@ -1870,6 +1871,11 @@ class LLMEngine:
                     if seq_group.metrics.cache_ops_time is not None:
                         cache_ops_time_requests.append(
                             seq_group.metrics.cache_ops_time * 1000)
+                    
+                    if seq_group.metrics.scheduler_time is not None:
+                        scheduler_time_requests.append(
+                            seq_group.metrics.scheduler_time
+                        )
                     # Metadata
                     num_prompt_tokens_requests.append(
                         len(seq_group.prompt_token_ids))
@@ -1944,6 +1950,7 @@ class LLMEngine:
             model_forward_time_requests=model_forward_time_requests,
             model_execute_time_requests=model_execute_time_requests,
             cache_ops_time_requests=cache_ops_time_requests,
+            scheduler_time_requests=scheduler_time_requests,
             #   Metadata
             num_prompt_tokens_requests=num_prompt_tokens_requests,
             num_generation_tokens_requests=num_generation_tokens_requests,

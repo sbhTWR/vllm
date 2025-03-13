@@ -517,11 +517,14 @@ class CsvStatLogger(StatLoggerBase):
         self.last_local_log = time.time()
         self.local_interval = local_interval
 
+        self.ttft_acc = []
+        self.tbt_acc = []
+
         # write header 
         header = ["timestamp", "prompt_throughput_avg", "generation_throughput_avg", 
                    "num_running_reqs", "num_swapped_reqs", "num_waiting_reqs",
                    "gpu_cache_usage", "cpu_cache_usage", "ttft_avg", "tbt_avg",
-                   "swap_t", "queue_t", "model_forward_t", "model_exec_t"]
+                   "swap_t", "queue_t", "model_forward_t", "model_exec_t", "sched_t"]
 
         self.log_csv.writerow(header)
 
@@ -542,6 +545,14 @@ class CsvStatLogger(StatLoggerBase):
 
         logger.debug('local interval elapsed = %s' % local_interval_elapsed(stats.now, self.last_local_log,
                                   self.local_interval))
+
+
+        """
+        Accumulate certain stats 
+        """
+        
+        self.ttft_acc.extend(stats.time_to_first_tokens_iter)
+        self.tbt_acc.extend(stats.time_per_output_tokens_iter)
 
         # Log locally every local_interval seconds.
         if local_interval_elapsed(stats.now, self.last_local_log,
@@ -579,16 +590,22 @@ class CsvStatLogger(StatLoggerBase):
             num_waiting_reqs = stats.num_waiting_sys
             gpu_cache_usage = stats.gpu_cache_usage_sys
             cpu_cache_usage = stats.cpu_cache_usage_sys
-            ttft_avg = float(np.mean(stats.time_to_first_tokens_iter))
-            time_per_token_avg = float(np.mean(stats.time_per_output_tokens_iter))
+
+            ttft_avg = float(np.mean(self.ttft_acc))
+            time_per_token_avg = float(np.mean(self.tbt_acc))
+
+            # reset accumulated stats
+            self.ttft_acc = []
+            self.tbt_acc = []
 
             # swap times 
             swap_times = stats.cache_ops_time_requests
             swap_times_len = len(swap_times)
             swap_t = sum(swap_times) / swap_times_len if swap_times_len != 0 else 0 
 
-            scheduled_times = None
-            sched_t = None
+            scheduler_times = stats.scheduler_time_requests
+            scheduler_times_len = len(scheduler_times)
+            sched_t = sum(scheduler_times) / scheduler_times_len if scheduler_times_len != 0 else 0
 
             queue_times = stats.time_in_queue_requests
             queue_times_len = len(queue_times)
@@ -605,7 +622,7 @@ class CsvStatLogger(StatLoggerBase):
             row = [now, prompt_throughput_avg, generation_throughput_avg, 
                    num_running_reqs, num_swapped_reqs, num_waiting_reqs,
                    gpu_cache_usage, cpu_cache_usage, ttft_avg, time_per_token_avg,
-                   swap_t, queue_t, model_forward_t, model_exec_t]
+                   swap_t, queue_t, model_forward_t, model_exec_t, sched_t]
 
             self.log_csv.writerow(row)
             self.file_handle.flush()

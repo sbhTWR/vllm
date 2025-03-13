@@ -2111,9 +2111,9 @@ class Scheduler:
         for seq_group in self.running:
             if seq_group is not None and seq_group.metrics is not None:
                 if seq_group.metrics.scheduler_time is not None:
-                    seq_group.metrics.scheduler_time += scheduler_time
+                    seq_group.metrics.scheduler_time += scheduler_time * 1000
                 else:
-                    seq_group.metrics.scheduler_time = scheduler_time
+                    seq_group.metrics.scheduler_time = scheduler_time * 1000
 
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id
