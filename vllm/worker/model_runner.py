@@ -744,6 +744,8 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
         if self.runner.model_config.is_encoder_decoder:
             encoder_seq_len = seq_group_metadata.encoder_seq_data.get_len()
 
+        logger.info("[elasticswap_debug] block_tables=%s" % seq_group_metadata.block_tables)
+
         inter_data = self.init_cached_inter_data(
             request_id=seq_group_metadata.request_id,
             seq_ids=seq_ids,
@@ -980,6 +982,30 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
             if data.multi_modal_kwargs is not None
         ]
         multi_modal_kwargs = MultiModalKwargs.batch(multi_modal_kwargs_list)
+
+        # logger.info("[elasticswap]" 
+        #             "input_tokens=%s "
+        #             "input_positions=%s "
+        #             "token_types=%s " 
+        #             "attn_metadata=%s "
+        #             "seq_lens=%s "
+        #             "query_lens=%s "
+        #             % (
+        #                 input_tokens_tensor,
+        #                 input_positions,
+        #                 token_types,
+        #                 attn_metadata,
+        #                 seq_lens,
+        #                 query_lens
+        #             )
+        # )
+
+        logger.info("[elasticswap]" 
+                    "attn_metadata=%s "
+                    % (
+                        attn_metadata,
+                    )
+        )
 
         return self.model_input_cls(
             input_tokens=input_tokens_tensor,

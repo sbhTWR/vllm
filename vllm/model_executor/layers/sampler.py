@@ -11,6 +11,7 @@ import msgspec
 import torch
 import torch.nn as nn
 
+from vllm.logger import init_logger
 import vllm.envs as envs
 from vllm.model_executor.layers.utils import apply_penalties
 from vllm.model_executor.sampling_metadata import (SamplingMetadata,
@@ -32,6 +33,7 @@ if envs.VLLM_USE_FLASHINFER_SAMPLER and find_spec("flashinfer"):
 else:
     flashinfer_top_k_top_p_sampling = None
 
+logger = init_logger(__name__)
 
 def get_sampler() -> torch.nn.Module:
     if envs.VLLM_USE_V1:
@@ -450,6 +452,7 @@ def _greedy_sample(
         same as the length of selected_seq_groups. If the corresponding
         seq_group has do_sample=False, tuple contains ([], [])
     """
+    # logger.info("[elasticswap] %s" % samples)
     samples_lst = samples.tolist()
     sample_idx = 0
     results: SampleResultType = []
@@ -719,6 +722,8 @@ def _sample_with_torch(
     * Defer Pythonization & preserve GPU-side
       tensors required for Pythonization
     '''
+
+    # logger.info("[elasticswap] logprobs = %s" % logprobs)
 
     categorized_seq_group_ids: Dict[SamplingType, List[int]] = {
         t: []

@@ -934,6 +934,21 @@ def merge_seq_groups_persist(new_seq_group: SequenceGroup, old_seq_group: Sequen
     old_seq_group.first_seq._last_output_token_ids_offset += len(output_ids_to_append)
     old_seq_group._returning = True
     old_seq_group.metrics.last_arrival_time = new_seq_group.metrics.arrival_time
+    old_seq_group.first_seq.data._new_appended_tokens = []
+
+    old_seq_group.first_seq.prefix_offset = 0
+    # output pointers 
+    # prefix  
+    # start 
+    # end
+
+    logger.info("[elasticswap] get_len()=%d num_new_tokens=%d num_computed_tokens=%d prompt_len=%d prefix_offset=%d "
+                % (old_seq_group.first_seq.get_len(),
+        old_seq_group.first_seq.get_num_new_tokens(),
+        old_seq_group.first_seq.get_num_computed_tokens(),
+        old_seq_group.first_seq.get_prompt_len(),
+        old_seq_group.first_seq.prefix_offset))
+
 
     return old_seq_group
     

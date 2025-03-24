@@ -189,8 +189,13 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                 
                 logger.info("[elasticswap] num_unseen_token_ids=%d num_computed_tokens=%d " 
                                 % (num_token_ids, num_computed_slots))
-                self.append_slots(seq, 0)
+                cows = self.append_slots(seq, 0)
 
+                block_table = self.block_tables[seq.seq_id]
+                num_blocks = len(block_table.blocks)
+                logger.info("[elasticswap] seq_id=%d num_blocks=%d" % (seq.seq_id, num_blocks))
+                logger.info("[elasticswap] blocks=%s" % block_table.physical_block_ids)
+                logger.info('[elasticswap] cows=%s' % cows)
             return 
 
         # NOTE: Here we assume that all sequences in the group have the same
@@ -585,7 +590,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
     def swap_in_elastic(self, seq: Sequence) -> List[Tuple[int, int]]:
         physical_block_id_mapping = []
         blocks = self._get_blocks_for_swap_in_seq(seq)
-        logger.info('[elasticswap] blocks_to_swap_in=%s' % blocks)
+        # logger.info('[elasticswap] blocks_to_swap_in=%s' % blocks)
         if not blocks or len(blocks) == 0:
             return 
         seq_swap_mapping = self.block_allocator.swap(blocks=blocks,
