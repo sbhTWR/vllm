@@ -13,6 +13,10 @@ class EvictionPolicy(enum.Enum):
     LRU = enum.auto()
 
 
+class SwapStrategy(enum.Enum):
+    SWAP_ALL = enum.auto()
+    PERSIST = enum.auto()
+
 class Evictor(ABC):
     """The Evictor subclasses should be used by the BlockAllocator class to
     handle eviction of freed Blocks.
@@ -69,6 +73,49 @@ class BlockMetaData:
         self.num_hashed_tokens = num_hashed_tokens
         self.last_accessed = last_accessed
 
+
+class FreeBlockSwapScheduler:
+    def __init__(self, swap_strategy = SwapStrategy.SWAP_ALL):
+        self.free_table: Dict[int, BlockMetaData] = {}
+        self.priority_queue = []
+        self.swap_strategy = swap_strategy
+
+    def __contains__(self, block_id: int) -> bool:
+        return block_id in self.free_table
+
+
+    def add(self, block_id: int, content_hash: int, num_hashed_tokens: int,
+            last_accessed: float):
+        self.free_table[block_id] = BlockMetaData(content_hash,
+                                                  num_hashed_tokens,
+                                                  last_accessed)
+
+    def update(self, block_id: int, last_accessed: float):
+        self.free_table[block_id].last_accessed = last_accessed
+
+
+    def remove(self, block_id: int):
+        if block_id not in self.free_table:
+            raise ValueError(
+                "Attempting to remove block that's not in the evictor")
+        self.free_table.pop(block_id)
+
+    
+    def get_and_reset_swap_blocks(self):
+        if self.swap_strategy == SwapStrategy.SWAP_ALL:
+            block_list= [(block_id, block) for block_id, block in self.free_table.items()]
+            self.free_table = {}
+            return block_list
+        elif self.swap_strategy == SwapStrategy.PERSIST:
+            return []
+        else:
+            raise ValueError("invalid swap strategy")
+
+    
+    @property
+    def num_blocks(self) -> int:
+        return len(self.free_table)
+    
 
 class LRUEvictor(Evictor):
     """Evicts in a least-recently-used order using the last_accessed timestamp

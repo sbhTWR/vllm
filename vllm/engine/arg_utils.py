@@ -111,6 +111,7 @@ class EngineArgs:
     pipeline_parallel_size: int = 1
     tensor_parallel_size: int = 1
     max_parallel_loading_workers: Optional[int] = None
+    block_allocator: str = "CpuGpuBlockAllocator"
     block_size: Optional[int] = None
     enable_prefix_caching: Optional[bool] = False
     disable_sliding_window: bool = False
@@ -427,6 +428,18 @@ class EngineArgs:
             '--ray-workers-use-nsight',
             action='store_true',
             help='If specified, use nsight to profile Ray workers.')
+    
+        parser.add_argument(
+            '--block-allocator',
+            type=str,
+            default='CpuGpuBlockAllocator',
+            choices=['CpuGpuBlockAllocator', 'CpuOffloadingBlockAllocator'],
+            help='The block allocator that vLLM uses. Currently'
+            ' can be CpuGpuBlockAllocator (the default) and '
+            'CpuOffloadingBlockAllocator (experimental) that '
+            'supports offloading the KV cache to CPU . '
+            'When using CpuOffloadingBlockAllocator, the '
+            'preemption mode must be recompute.')
         # KV cache arguments
         parser.add_argument('--block-size',
                             type=int,
@@ -1087,6 +1100,14 @@ class EngineArgs:
             "CPU offload space must be non-negative"
             f", but got {self.cpu_offload_gb}")
 
+        if self.block_allocator == "CpuOffloadingBlockAllocator" and \
+            self.preemption_mode == "swap":
+            raise ValueError(
+                "CpuOffloadingBlockAllocator only supports preemption by "
+                "recomputation as it internally offloads the request KV cache "
+                "to CPU. Please add `--preemption-mode recomputation` to vLLM "
+                "engine args")
+
         device_config = DeviceConfig(device=self.device)
         model_config = self.create_model_config()
 
@@ -1108,6 +1129,7 @@ class EngineArgs:
             enable_prefix_caching=self.enable_prefix_caching,
             cpu_offload_gb=self.cpu_offload_gb,
             calculate_kv_scales=self.calculate_kv_scales,
+            block_allocator=self.block_allocator,
         )
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,

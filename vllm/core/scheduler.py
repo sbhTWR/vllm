@@ -158,7 +158,7 @@ class SchedulerOutputs:
 
     def __post_init__(self):
         # Swap in and swap out should never happen at the same time.
-        assert not (self.blocks_to_swap_in and self.blocks_to_swap_out)
+        # assert not (self.blocks_to_swap_in and self.blocks_to_swap_out)
 
         self.num_loras: int = len(self.lora_requests)
         if self.num_loras > 0:
@@ -918,7 +918,8 @@ class Scheduler:
             num_gpu_blocks=num_gpu_blocks,
             num_cpu_blocks=num_cpu_blocks,
             sliding_window=self.cache_config.sliding_window,
-            enable_caching=self.cache_config.enable_prefix_caching)
+            enable_caching=self.cache_config.enable_prefix_caching,
+            block_allocator=self.cache_config.block_allocator)
 
         # Sequence groups in the WAITING state.
         # Contain new prefill or preempted requests.
@@ -1797,13 +1798,25 @@ class Scheduler:
         # logger.info(
         #         "[elasticswap] Paused swap out: %s", paused_blocks_to_swap_out)
 
+        # NOTE(Kuntai): extend the swapping list for CPU offloading
+        elastic_swap_blocks_to_swap_out = []
+        elastic_swap_blocks_to_swap_in = []
+
+        new_swap_out, new_swap_in = \
+                self.block_manager.get_and_reset_swaps(time.time())
+        for src, dst in new_swap_out:
+            elastic_swap_blocks_to_swap_out.extend((src, dst))
+        for src, dst in new_swap_in:
+            elastic_swap_blocks_to_swap_in.extend((src, dst))
+
+
         sched_outputs = SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
             num_prefill_groups=num_prefill_groups,
             num_batched_tokens=budget.num_batched_tokens +
             budget.num_cached_tokens,
-            blocks_to_swap_in=swapped_in.blocks_to_swap_in + paused_blocks_to_swap_in,
-            blocks_to_swap_out=running_scheduled.blocks_to_swap_out + paused_blocks_to_swap_out,
+            blocks_to_swap_in=swapped_in.blocks_to_swap_in + paused_blocks_to_swap_in + elastic_swap_blocks_to_swap_in,
+            blocks_to_swap_out=running_scheduled.blocks_to_swap_out + paused_blocks_to_swap_out + elastic_swap_blocks_to_swap_out,
             blocks_to_copy=blocks_to_copy,
             ignored_seq_groups=ignored_seq_groups,
             num_lookahead_slots=running_scheduled.num_lookahead_slots,
@@ -1906,7 +1919,17 @@ class Scheduler:
             finished_seq_groups=finished_seq_groups
         )
 
-        
+        # NOTE(Kuntai): extend the swapping list for CPU offloading
+        elastic_swap_blocks_to_swap_out = []
+        elastic_swap_blocks_to_swap_in = []
+
+        new_swap_out, new_swap_in = \
+                self.block_manager.get_and_reset_swaps(time.time())
+        for src, dst in new_swap_out:
+            elastic_swap_blocks_to_swap_out.extend((src, dst))
+        for src, dst in new_swap_in:
+            elastic_swap_blocks_to_swap_in.extend((src, dst))
+
         logger.info(
                 "[elasticswap] Paused swap out: %s", paused_blocks_to_swap_out)
 
@@ -1915,8 +1938,8 @@ class Scheduler:
             num_prefill_groups=num_prefill_groups,
             num_batched_tokens=budget.num_batched_tokens +
             budget.num_cached_tokens,
-            blocks_to_swap_in=swapped_in.blocks_to_swap_in + paused_blocks_to_swap_in,
-            blocks_to_swap_out=running_scheduled.blocks_to_swap_out + paused_blocks_to_swap_out,
+            blocks_to_swap_in=swapped_in.blocks_to_swap_in + paused_blocks_to_swap_in + elastic_swap_blocks_to_swap_in,
+            blocks_to_swap_out=running_scheduled.blocks_to_swap_out + paused_blocks_to_swap_out + elastic_swap_blocks_to_swap_out,
             blocks_to_copy=running_scheduled.blocks_to_copy +
             swapped_in.blocks_to_copy,
             ignored_seq_groups=prefills.ignored_seq_groups +
