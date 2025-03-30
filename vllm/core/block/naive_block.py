@@ -339,6 +339,9 @@ class NaiveBlockAllocator(BlockAllocator):
     def find_cached_blocks_prefix(self, block_hashes: List[int]) -> List[int]:
         # Not applicable for naive block allocator.
         return []
+    
+    def get_and_reset_swaps(self):
+        return []
 
 
 class NaiveBlock(Block):

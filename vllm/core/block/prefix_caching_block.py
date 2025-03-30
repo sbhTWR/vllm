@@ -931,6 +931,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         # No longer used
         assert block.content_hash in self._cached_blocks
 
+        # print("gpu_block_id=%d freed" % block_id)
         # Add the cached block to the evictor
         # (This keeps the cached block around so it can be reused)
         self.swap_scheduler.add(block_id, block.content_hash, block.num_tokens_total,
@@ -963,9 +964,9 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         if hashless_block_id is not None:
             return hashless_block_id
 
-        evicted_block_id = self._maybe_allocate_evicted_block_id()
-        if evicted_block_id is not None:
-            return evicted_block_id
+        # evicted_block_id = self._maybe_allocate_evicted_block_id()
+        # if evicted_block_id is not None:
+        #     return evicted_block_id
 
         # No block available in hashless allocator, nor in unused cache blocks.
         raise BlockAllocator.NoFreeBlocksError()
@@ -998,10 +999,12 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         assert block_id is not None, "Freeing unallocated block is undefined"
 
         if block.content_hash is not None:
+            # print('dec refcount for cached block=%d' % block_id)
             # Immutable: This type of block is always cached, and we want to
             # keep it in the evictor for future reuse
             self._decr_refcount_cached_block(block)
         else:
+            # print('dec refcount for uncached block=%d' % block_id)
             # Mutable: This type of block is not cached, so we release it
             # directly to the hashless allocator
             self._decr_refcount_hashless_block(block)
@@ -1364,7 +1367,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
                            key=lambda x: not _block_is_cached(x))
         return block_hashes[:idx]
 
-    def get_and_reset_swap_blocks(self):
+    def get_and_reset_swaps(self):
         blocks = self.swap_scheduler.get_and_reset_swap_blocks()
         return blocks
 
@@ -1400,7 +1403,8 @@ class PrefixCachingBlock(Block):
         computed: bool = False,
         extra_hash: Optional[int] = None,
     ):
-        assert isinstance(allocator, PrefixCachingBlockAllocator), (
+        assert isinstance(allocator, PrefixCachingBlockAllocator) or\
+            isinstance(allocator, ElasticSwapBlockAllocator), (
             "Currently this class is only tested with "
             "PrefixCachingBlockAllocator. Got instead allocator = {}".format(
                 allocator))

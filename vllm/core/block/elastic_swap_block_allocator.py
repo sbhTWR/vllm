@@ -110,32 +110,16 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                                    Device.CPU: cpu_block_allocator,
                                    Device.GPU: gpu_block_allocator
                                }
-        """
-        GPU block should only be in one of the following three status:
-          uncached: allocated blocks that didn't hit any cache
-          cached: allocated blocks that are cached, either in GPU or in CPU
-          free: the blocks are not allocated by block allocator
-        This implementation aims to transform uncached blocks to cached blocks
-        by performing GPU to CPU copy when calling `get_and_reset_swaps`
-        
-        As block allocator will automatically track free blocks, and we don't 
-        need to specially handle cached blocks. So we only track uncached blocks
-        """
-        self._uncached_blocks: Deque[Block] = deque()
-        """
-        We probe CPU cache hit by trying to allocate a CPU 
-        block and see if it is computed.
-        If we hit the CPU cache, we cannot free this CPU block until the end 
-        of scheduler step, in order to avoid the CPU cache being overwritten.
-        so we track the cpu blocks we allocated, and free it after scheduler
-        step (i.e. calling `get_and_reset_swaps`).
-        """
-        self._allocated_cpu_blocks: Deque[Block] = deque()
 
         self.num_gpu_blocks = gpu_block_allocator.get_num_total_blocks()
         self.num_cpu_blocks = cpu_block_allocator.get_num_total_blocks()
 
         self._swap_mapping: Dict[int, int] = {}
+
+        self._block_ids_to_allocator: Dict[int, BlockAllocator] = {}
+        for _, allocator in self._allocators.items():
+            for block_id in allocator.all_block_ids:
+                self._block_ids_to_allocator[block_id] = allocator
 
     def allocate_mutable_block(self,
                                prev_block: Optional[Block],
@@ -158,7 +142,6 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         block = self._allocators[device].allocate_mutable_block(
             prev_block, extra_hash=extra_hash)
-        self._uncached_blocks.append(block)
         return block
 
     def allocate_immutable_blocks(
@@ -326,18 +309,36 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         # replace in block tracker
         block_tracker = gpu_allocator._block_tracker
         assert old_block_id in block_tracker
-        new_block_tracker_obj = BlockTracker()
-        new_block_tracker_obj.computed = True
-        new_block_tracker_obj.active = True
 
-        if now:
-            new_block_tracker_obj.last_accessed = now
-        else:
-            new_block_tracker_obj.last_accessed = block_tracker[old_block_id].last_accessed
+        old_block_tracker_obj = block_tracker[old_block_id]
+        if old_block_tracker_obj.active:
+            new_block_tracker_obj = BlockTracker()
+            new_block_tracker_obj.computed = True
+            new_block_tracker_obj.active = True
 
-        block_tracker[new_block_id] = new_block_tracker_obj
-        block_tracker[old_block_id].disable()
+            if now:
+                new_block_tracker_obj.last_accessed = now
+            else:
+                new_block_tracker_obj.last_accessed = old_block_tracker_obj.last_accessed
+
+            block_tracker[new_block_id] = new_block_tracker_obj
+            print(old_block_id)
+            block_tracker[old_block_id].disable()
         
+
+    def free(self, block: Block) -> None:
+        """Frees the memory occupied by the given block.
+
+        Args:
+            block (Block): The block to be freed.
+        """
+        # # Null block should never be freed
+        # if isinstance(block, NullBlock):
+        #     return
+        block_id = block.block_id
+        assert block_id is not None
+        allocator = self._block_ids_to_allocator[block_id]
+        allocator.free(block)
 
 
     def get_and_reset_swaps(self,
@@ -368,7 +369,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         gpu_allocator = self._allocators[Device.GPU]
         cpu_allocator = self._allocators[Device.CPU]
 
-        gpu_blocks_to_swap_out = gpu_allocator.get_and_reset_swap_blocks()
+        gpu_blocks_to_swap_out = gpu_allocator.get_and_reset_swaps()
 
         for gpu_block_id, block_metadata in gpu_blocks_to_swap_out:
             cpu_block_id = cpu_allocator._allocate_block_id()
@@ -381,9 +382,12 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 now
             )
 
-            # free gpu block id 
-            gpu_allocator._hashless_allocator.free_block_id(gpu_block_id)
+            # increment reference counter and release block to hashless allocator
+            gpu_allocator._hashless_allocator._refcounter.incr(gpu_block_id)
+            gpu_allocator._hashless_allocator._free_block_id(gpu_block_id)
 
+            # print('swap_out gpu (%d) --> cpu (%d)' % (gpu_block_id, cpu_block_id))
+        
             src = self._get_physical_block_id_unsafe(gpu_block_id)
             dst = self._get_physical_block_id_unsafe(cpu_block_id)
             blocks_to_swap_out.append((src, dst))
