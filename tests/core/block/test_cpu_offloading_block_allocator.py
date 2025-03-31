@@ -1,5 +1,6 @@
 import pytest
 
+from vllm.core.evictor import SwapStrategy, FreeBlockSwapScheduler
 from vllm.core.block.elastic_swap_block_allocator import (
     CpuOffloadingBlockAllocator)
 from vllm.utils import Device, chunk_list
@@ -48,13 +49,16 @@ def test_allocate_mutable_block(num_cpu_blocks: int, num_gpu_blocks: int,
 @pytest.mark.parametrize("num_gpu_blocks", [256])
 @pytest.mark.parametrize("block_size", [2])
 @pytest.mark.parametrize("allocator_type", ["prefix_caching"])
-def test_allocate_immutable_block(num_cpu_blocks: int, num_gpu_blocks: int,
-                                  block_size: int, allocator_type: str):
+@pytest.mark.parametrize("swap_strategy", [SwapStrategy.SWAP_ALL])
+def test_swap_all(num_cpu_blocks: int, num_gpu_blocks: int,
+                                  block_size: int, allocator_type: str,
+                                  swap_strategy: SwapStrategy):
     allocator = CpuOffloadingBlockAllocator.create(
         allocator_type=allocator_type,
         num_gpu_blocks=num_gpu_blocks,
         num_cpu_blocks=num_cpu_blocks,
         block_size=block_size,
+        swap_strategy=swap_strategy
     )
 
     unique_token_ids = list(
@@ -288,8 +292,92 @@ def test_allocate_immutable_block(num_cpu_blocks: int, num_gpu_blocks: int,
     assert allocator.get_num_free_blocks(Device.GPU) == 0
     assert allocator._allocators[Device.GPU].swap_scheduler.num_blocks == 256
 
+    
+    """
+    Verify CPU evictor
+    """
+
+
+    allocator.evict_from_cpu_swap_evcitor(256)
+    assert allocator.get_num_free_blocks(Device.CPU) == 256
+
+    allocator.evict_from_cpu_swap_evcitor(2048)
+    assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
+
+
+    """
+    Try swapping again
+    """ 
+    print('num_free_blocks_gpu=%d' % allocator.get_num_free_blocks(Device.GPU))
+    print('num_free_blocks_cpu=%d' % allocator.get_num_free_blocks(Device.CPU))
+    print('swap_scheduler=%d' % swap_scheduler.num_blocks)
+
+    blocks_to_swap_out, blocks_to_swap_in = allocator.get_and_reset_swaps(8.0)
+
+    assert len(blocks_to_swap_out) == num_gpu_blocks
+
+    print('num_free_blocks_gpu=%d' % allocator.get_num_free_blocks(Device.GPU))
+    print('num_free_blocks_cpu=%d' % allocator.get_num_free_blocks(Device.CPU))
+    print('swap_scheduler=%d' % swap_scheduler.num_blocks)
+
+
+    """
+    Try allocating an older request for sanity 
+    """
+    gpu_blocks = [
+        allocator.allocate_immutable_block(prev_block=None,
+                                           token_ids=token_ids,
+                                           device=Device.GPU)
+        for token_ids in gpu_token_ids
+    ]
+
+    assert allocator.get_num_free_blocks(Device.GPU) == 0
+    assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks - num_gpu_blocks
+
+
     print('all tests passed')
     
+
+@pytest.mark.parametrize("num_cpu_blocks", [1024])
+@pytest.mark.parametrize("num_gpu_blocks", [256])
+@pytest.mark.parametrize("block_size", [2])
+@pytest.mark.parametrize("allocator_type", ["prefix_caching"])
+@pytest.mark.parametrize("swap_strategy", [SwapStrategy.PERSIST])
+def test_persist(num_cpu_blocks: int, num_gpu_blocks: int,
+                                  block_size: int, allocator_type: str,
+                                  swap_strategy: SwapStrategy):
+    allocator = CpuOffloadingBlockAllocator.create(
+        allocator_type=allocator_type,
+        num_gpu_blocks=num_gpu_blocks,
+        num_cpu_blocks=num_cpu_blocks,
+        block_size=block_size,
+        swap_strategy=swap_strategy
+    )
+
+    unique_token_ids = list(
+        range((num_cpu_blocks + num_gpu_blocks) * block_size))
+    gpu_token_ids = list(
+        chunk_list(unique_token_ids[:num_gpu_blocks * block_size], block_size))
+    
+    gpu_token_ids2 = list(
+        chunk_list(
+            unique_token_ids[1*num_gpu_blocks * block_size:2 * num_gpu_blocks *
+                             block_size], block_size))
+    
+    gpu_token_ids3 = list(
+        chunk_list(
+            unique_token_ids[2*num_gpu_blocks * block_size:3 * num_gpu_blocks *
+                             block_size], block_size))
+
+    gpu_token_ids4 = list(
+        chunk_list(
+            unique_token_ids[3*num_gpu_blocks * block_size:4 * num_gpu_blocks *
+                             block_size], block_size))
+
+    gpu_token_ids5 = list(
+        chunk_list(
+            unique_token_ids[4*num_gpu_blocks * block_size:5 * num_gpu_blocks *
+                             block_size], block_size))
 
     # assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
   

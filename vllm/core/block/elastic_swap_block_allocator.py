@@ -13,8 +13,11 @@ This implementation also allows vLLM to gracefully handle preemption by
 recomputation.
 """
 from collections import deque
+import heapq
 from typing import Deque, Dict, List, Optional, Tuple
 
+from vllm.core.evictor import SwapStrategy, FreeBlockSwapScheduler
+from vllm.core.evictor import BlockMetaData
 from vllm.core.block.interfaces import (Block, BlockAllocator, BlockId,
                                         DeviceAwareBlockAllocator)
 from vllm.core.block.naive_block import NaiveBlock, NaiveBlockAllocator
@@ -46,6 +49,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         num_gpu_blocks: int,
         num_cpu_blocks: int,
         block_size: int,
+        swap_strategy: SwapStrategy = SwapStrategy.SWAP_ALL,
     ) -> DeviceAwareBlockAllocator:
         """Initiate CpuOffloadingBlockAllocator. Similar to 
         CpuGpuBlockAllocator.create() but only support prefix caching
@@ -83,6 +87,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             num_blocks=num_gpu_blocks,
             block_size=block_size,
             block_ids=gpu_block_ids,
+            swap_strategy=swap_strategy
         )
 
         cpu_allocator: BlockAllocator = NaiveBlockAllocator(
@@ -120,6 +125,72 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         for _, allocator in self._allocators.items():
             for block_id in allocator.all_block_ids:
                 self._block_ids_to_allocator[block_id] = allocator
+
+
+        self._cached_blocks_cpu: Dict[int, BlockMetaData] = {}
+        self.priority_queue = []
+
+    def add_to_cpu_swap_evictor(self, block_id, block_metadata):
+        self._cached_blocks_cpu[block_id] = block_metadata
+        last_accessed = block_metadata.last_accessed
+        num_hashed_tokens = block_metadata.num_hashed_tokens
+        content_hash = block_metadata.content_hash
+        heapq.heappush(
+            self.priority_queue,
+            (last_accessed, -num_hashed_tokens, block_id, content_hash))
+        
+        self._cleanup_cpu_swap_evictor_if_necessary()
+    
+    def remove_from_cpu_swap_evictor(self, block_id):
+        self._cached_blocks_cpu.pop(block_id)
+    
+    def _cleanup_cpu_swap_evictor_if_necessary(self):
+        if len(self.priority_queue) > 50 * len(
+                self._cached_blocks_cpu):
+            self._cleanup_cpu_swap_evictor()
+
+    def _cleanup_cpu_swap_evictor(self):
+        new_priority_queue: List[Tuple[float, int, int, int]] = []
+
+        for block_id, block in self._cached_blocks_cpu.items():
+            new_priority_queue.append(
+                (block.last_accessed, -block.num_hashed_tokens, block_id,
+                 block.content_hash))
+        heapq.heapify(new_priority_queue)
+
+        self.priority_queue = new_priority_queue
+
+    def evict_from_cpu_swap_evcitor(self, n):
+        num_evicted = 0
+        
+        if len(self._cached_blocks_cpu) == 0:
+            return None
+        
+        gpu_allocator = self._allocators[Device.GPU]
+        block_tracker = gpu_allocator._block_tracker
+        while self.priority_queue:
+            if num_evicted >= n:
+                break
+            last_accessed, _, block_id, content_hash = heapq.heappop(
+                self.priority_queue)
+            if block_id in self._cached_blocks_cpu:
+                self._cached_blocks_cpu.pop(block_id)
+                # print('popped block_id=%d' % block_id)
+
+                assert content_hash in gpu_allocator._cached_blocks
+
+                # replace in hash map 
+                gpu_allocator._cached_blocks.pop(content_hash)
+                # remove from block tracker 
+                if block_id in block_tracker:
+                    block_tracker.pop(block_id)
+
+                self._allocators[Device.CPU]._free_block_id(block_id) 
+
+                # free the block 
+                num_evicted += 1
+
+        return num_evicted
 
     def allocate_mutable_block(self,
                                prev_block: Optional[Block],
@@ -327,7 +398,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             return block_id - self.num_gpu_blocks
 
     def replace_block_ids_in_cached_allocator(
-            self, old_block_id, new_block_id, hash_value, now):
+            self, old_block_id, new_block_id, hash_value, now, block_metadata=None):
         gpu_allocator = self._allocators[Device.GPU]
 
         # replace in hash map 
@@ -356,6 +427,9 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         if old_block_tracker_obj.active:
             block_tracker[old_block_id].disable()
         
+        if self._is_gpu_block_unsafe(old_block_id):
+            assert block_metadata is not None
+            self.add_to_cpu_swap_evictor(new_block_id, block_metadata)
 
     def free(self, block: Block) -> None:
         """Frees the memory occupied by the given block.
@@ -416,7 +490,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 gpu_block_id,
                 cpu_block_id,
                 hash_value,
-                now
+                now,
+                block_metadata
             )
 
             # increment reference counter and release block to hashless allocator
