@@ -816,6 +816,30 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             extra_hash=extra_hash,
         )
 
+    def add_to_swap_scheduler(self, block_id, block_metadata):
+        self.swap_scheduler.add(
+            block_id, block_metadata.content_hash, block_metadata.num_hashed_tokens,
+            self._block_tracker[block_id].last_accessed)
+
+    def check_if_hash_exists(self,
+                             prev_block: Optional[Block],
+                             token_ids: List[int],
+                             extra_hash: Optional[int] = None) -> bool:
+        
+        assert_prefix_caching_block_or_none(prev_block)
+        block = self._block_pool.init_block(prev_block=prev_block,
+                                            token_ids=token_ids,
+                                            block_size=self._block_size,
+                                            physical_block_id=None,
+                                            extra_hash=extra_hash)
+        assert block.content_hash is not None
+
+        content_hash = block.content_hash
+        self._block_pool.free_block(block)
+        cached_block_id = self._cached_blocks.get(content_hash, None)
+
+        return cached_block_id, content_hash
+
     def allocate_immutable_block(self,
                                  prev_block: Optional[Block],
                                  token_ids: List[int],

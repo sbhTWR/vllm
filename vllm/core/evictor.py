@@ -83,7 +83,6 @@ class FreeBlockSwapScheduler:
     def __contains__(self, block_id: int) -> bool:
         return block_id in self.free_table
 
-
     def add(self, block_id: int, content_hash: int, num_hashed_tokens: int,
             last_accessed: float):
         self.free_table[block_id] = BlockMetaData(content_hash,

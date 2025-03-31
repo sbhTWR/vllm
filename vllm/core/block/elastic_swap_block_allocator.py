@@ -203,6 +203,33 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             " should always use Device.GPU --- CPU offloading block allocator"\
             " handles CPU offloading internally."
 
+        # check if hash exists and whether its a CPU block 
+        _block_id_tmp, content_hash = self._allocators[device].check_if_hash_exists(
+            prev_block=prev_block,
+            token_ids=token_ids,
+            extra_hash=extra_hash
+        )
+
+        if _block_id_tmp:
+            assert content_hash is not None
+            if not self._is_gpu_block_unsafe(_block_id_tmp):
+                # allocate a gpu block 
+                gpu_block_id_replacement = self._allocators[device]._allocate_block_id() 
+                # and replace the mapping
+
+                # decrement the reference count since it will be incremented 
+                # in immutable allocation 
+                self._allocators[device]._refcounter.decr(gpu_block_id_replacement)
+
+                self.replace_block_ids_in_cached_allocator(
+                    _block_id_tmp,
+                    gpu_block_id_replacement,
+                    content_hash,
+                    now=False
+                )
+
+                self._swap_mapping[_block_id_tmp] = gpu_block_id_replacement
+
         # allocate a GPU block
         block = self._allocators[device].allocate_immutable_block(
             prev_block, token_ids, extra_hash=extra_hash)
@@ -214,23 +241,23 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         # 1. cache hit on GPU
         # 2. no cache hit on GPU but cache hit on CPU
         # 3. no cache hit
-        if block_computed:
-            # cache hit on GPU, no need to put it into uncached blocks
-            if not self._is_gpu_block_unsafe(block.block_id):
-                # cpu block id, needs swap_in 
-                # allocate a block_id from cpu 
-                gpu_block_id = self._allocators[device]._allocate_block_id()
-                self._swap_mapping[block.block_id] = gpu_block_id
+        # if block_computed:
+        #     # cache hit on GPU, no need to put it into uncached blocks
+        #     if not self._is_gpu_block_unsafe(block.block_id):
+        #         # cpu block id, needs swap_in 
+        #         # allocate a block_id from cpu 
+        #         gpu_block_id = self._allocators[device]._allocate_block_id()
+        #         self._swap_mapping[block.block_id] = gpu_block_id
 
-                # replace block_ids
-                self.replace_block_ids_in_cached_allocator(
-                    block.block_id,
-                    gpu_block_id,
-                    block.content_hash,
-                    now=False
-                )
+        #         # replace block_ids
+        #         self.replace_block_ids_in_cached_allocator(
+        #             block.block_id,
+        #             gpu_block_id,
+        #             block.content_hash,
+        #             now=False
+        #         )
 
-                block.block_id = gpu_block_id
+        #         block.block_id = gpu_block_id
         # else:
         #     # check if we can hit cache on CPU by trying to allocate CPU block
         #     cpu_block = self._allocators[Device.CPU].allocate_immutable_block(
@@ -311,18 +338,22 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         assert old_block_id in block_tracker
 
         old_block_tracker_obj = block_tracker[old_block_id]
+
+        # print("replacing old_block_id=%d --> new_block_id=%d old block is active = %s" % 
+            #   (old_block_id, new_block_id, old_block_tracker_obj.active))
+        
+        new_block_tracker_obj = BlockTracker()
+        new_block_tracker_obj.computed = True
+        new_block_tracker_obj.active = old_block_tracker_obj.active
+
+        if now:
+            new_block_tracker_obj.last_accessed = now
+        else:
+            new_block_tracker_obj.last_accessed = old_block_tracker_obj.last_accessed
+
+        block_tracker[new_block_id] = new_block_tracker_obj
+        # print(old_block_id)
         if old_block_tracker_obj.active:
-            new_block_tracker_obj = BlockTracker()
-            new_block_tracker_obj.computed = True
-            new_block_tracker_obj.active = True
-
-            if now:
-                new_block_tracker_obj.last_accessed = now
-            else:
-                new_block_tracker_obj.last_accessed = old_block_tracker_obj.last_accessed
-
-            block_tracker[new_block_id] = new_block_tracker_obj
-            print(old_block_id)
             block_tracker[old_block_id].disable()
         
 
@@ -371,8 +402,14 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         gpu_blocks_to_swap_out = gpu_allocator.get_and_reset_swaps()
 
-        for gpu_block_id, block_metadata in gpu_blocks_to_swap_out:
-            cpu_block_id = cpu_allocator._allocate_block_id()
+        while gpu_blocks_to_swap_out:
+            gpu_block_id, block_metadata = gpu_blocks_to_swap_out.pop()
+            cpu_block_id = cpu_allocator._allocate_block_id_unsafe()
+
+            if not cpu_block_id:
+                gpu_blocks_to_swap_out.append((gpu_block_id, block_metadata))
+                break
+
             hash_value = block_metadata.content_hash
             
             self.replace_block_ids_in_cached_allocator(
@@ -392,6 +429,13 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             dst = self._get_physical_block_id_unsafe(cpu_block_id)
             blocks_to_swap_out.append((src, dst))
 
+        if gpu_blocks_to_swap_out:
+            # print('releasing some blocks back to swap_scheduler=%d' % len(gpu_blocks_to_swap_out))
+            while gpu_blocks_to_swap_out:
+                block_id, block_metadata = gpu_blocks_to_swap_out.pop()
+                # add them back to swap scheduler 
+                gpu_allocator.add_to_swap_scheduler(block_id, block_metadata)
+
         for src, dst in self._swap_mapping.items():
             # only two possible cases: CPU -> GPU, or GPU -> CPU
             #if src in self._allocators[Device.GPU].all_block_ids:
@@ -401,6 +445,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 dst = self._get_physical_block_id_unsafe(dst)
                 blocks_to_swap_out.append((src, dst))
             else:
+                # free cpu blocks 
+                self._allocators[Device.CPU]._free_block_id(src)
                 # swap in
                 src = self._get_physical_block_id_unsafe(src)
                 dst = self._get_physical_block_id_unsafe(dst)

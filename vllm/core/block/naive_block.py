@@ -138,6 +138,15 @@ class NaiveBlockAllocator(BlockAllocator):
         self._refcounter.incr(block_id)
         return block_id
 
+    def _allocate_block_id_unsafe(self) -> BlockId:
+        if not self._free_block_indices:
+            # print('[cpu] no free blocks left!!')
+            return None
+
+        block_id = self._free_block_indices.popleft()
+        self._refcounter.incr(block_id)
+        return block_id
+
     def _free_block_id(self, block: Union[Block, BlockId]) -> None:
         if isinstance(block, Block):
             block_id = block.block_id
