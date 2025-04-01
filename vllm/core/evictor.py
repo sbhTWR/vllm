@@ -83,15 +83,60 @@ class FreeBlockSwapScheduler:
     def __contains__(self, block_id: int) -> bool:
         return block_id in self.free_table
 
+    def evict_n(self, n) -> List[int]:
+        evicted_block_ids = []
+
+        if len(self.free_table) == 0:
+            return []
+
+        while self.priority_queue:
+            # We do not remove outdated entries from the priority queue at the
+            # time of updating the last_accessed timestamp. Instead, outdated
+            # entries are filtered out here during eviction. Outdated entries
+            # would either not in the free table, or have older last accessed
+            # time.
+
+            if len(evicted_block_ids) >= n:
+                break
+
+            last_accessed, _, block_id, content_hash = heapq.heappop(
+                self.priority_queue)
+            
+            if block_id in self.free_table:
+                self.free_table.pop(block_id)
+                evicted_block_ids.append((block_id, content_hash))
+        
+        return evicted_block_ids
+
     def add(self, block_id: int, content_hash: int, num_hashed_tokens: int,
             last_accessed: float):
         self.free_table[block_id] = BlockMetaData(content_hash,
                                                   num_hashed_tokens,
                                                   last_accessed)
 
+        heapq.heappush(
+            self.priority_queue,
+            (last_accessed, -num_hashed_tokens, block_id, content_hash))
+        self._cleanup_if_necessary()
+
+    def _cleanup_if_necessary(self):
+        if len(self.priority_queue) > LRUEvictor.CLEANUP_THRESHOLD * len(
+                self.free_table):
+            self._cleanup()
+
+    def _cleanup(self):
+        new_priority_queue: List[Tuple[float, int, int, int]] = []
+
+        for block_id, block in self.free_table.items():
+            new_priority_queue.append(
+                (block.last_accessed, -block.num_hashed_tokens, block_id,
+                 block.content_hash))
+        heapq.heapify(new_priority_queue)
+
+        self.priority_queue = new_priority_queue
+
     def update(self, block_id: int, last_accessed: float):
         self.free_table[block_id].last_accessed = last_accessed
-
 
     def remove(self, block_id: int):
         if block_id not in self.free_table:
@@ -99,7 +144,6 @@ class FreeBlockSwapScheduler:
                 "Attempting to remove block that's not in the evictor")
         self.free_table.pop(block_id)
 
-    
     def get_and_reset_swap_blocks(self):
         if self.swap_strategy == SwapStrategy.SWAP_ALL:
             block_list= [(block_id, block) for block_id, block in self.free_table.items()]

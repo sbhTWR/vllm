@@ -160,7 +160,11 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         self.priority_queue = new_priority_queue
 
-    def evict_from_cpu_swap_evcitor(self, n):
+    def evict_from_swap_scheduler(self, n):
+        num_evicted = self._allocators[Device.GPU].evict_n_from_swap_scheduler(n)
+        return num_evicted
+
+    def evict_from_cpu_swap_evictor(self, n):
         num_evicted = 0
         
         if len(self._cached_blocks_cpu) == 0:

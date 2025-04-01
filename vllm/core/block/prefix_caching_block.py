@@ -821,6 +821,18 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             block_id, block_metadata.content_hash, block_metadata.num_hashed_tokens,
             self._block_tracker[block_id].last_accessed)
 
+    def evict_n_from_swap_scheduler(self, n):
+        block_ids_evicted = []
+        block_ids_to_evict = self.swap_scheduler.evict_n(n)
+        for block_id, content_hash in block_ids_to_evict:
+            self._refcounter.incr(block_id)
+            self._hashless_allocator._free_block_id(block_id)
+            assert content_hash in self._cached_blocks
+            self._cached_blocks.pop(content_hash)
+            block_ids_evicted.append(block_id)
+        
+        return len(block_ids_evicted)
+
     def check_if_hash_exists(self,
                              prev_block: Optional[Block],
                              token_ids: List[int],

@@ -298,7 +298,7 @@ def test_swap_all(num_cpu_blocks: int, num_gpu_blocks: int,
     """
 
 
-    allocator.evict_from_cpu_swap_evcitor(256)
+    allocator.evict_from_cpu_swap_evictor(256)
     assert allocator.get_num_free_blocks(Device.CPU) == 256
 
     allocator.evict_from_cpu_swap_evcitor(2048)
@@ -379,52 +379,69 @@ def test_persist(num_cpu_blocks: int, num_gpu_blocks: int,
             unique_token_ids[4*num_gpu_blocks * block_size:5 * num_gpu_blocks *
                              block_size], block_size))
 
-    # assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
-  
+    
+    gpu_blocks1 = [
+        allocator.allocate_immutable_block(prev_block=None,
+                                           token_ids=token_ids,
+                                           device=Device.GPU)
+        for token_ids in gpu_token_ids
+    ]
 
-    # blocks_to_swap_out, blocks_to_swap_in = allocator.get_and_reset_swaps(1.0)
-    # assert len(blocks_to_swap_out) == 0
-    # assert len(blocks_to_swap_in) == 0
-    # # assert len(allocator._uncached_blocks) == 0
+    assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
+    assert allocator.get_num_free_blocks(Device.GPU) == 0
 
-    # # allocate another gpu sequence to flush out the GPU cache
-    # gpu_blocks = [
-    #     allocator.allocate_immutable_block(prev_block=None,
-    #                                        token_ids=token_ids,
-    #                                        device=Device.GPU)
-    #     for token_ids in gpu_token_ids2
-    # ]
+    allocator.mark_blocks_as_computed([block.block_id for block in gpu_blocks1])
 
-    # assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
-    # assert allocator.get_num_free_blocks(Device.GPU) == 0
-    # assert all([
-    #     not allocator._allocators[Device.GPU].block_is_computed(block.block_id)
-    #     for block in gpu_blocks
-    # ])
+    print('[pre] ref_count for block_id = 0', allocator._allocators[Device.GPU]._hashless_allocator._refcounter._refcounts[0])
+    # free blocks 
+    for block in gpu_blocks1:
+        allocator.free(block)
+    print('[post] ref_count for block_id = 0', allocator._allocators[Device.GPU]._hashless_allocator._refcounter._refcounts[0])
 
-    # _ = [allocator.free(block) for block in gpu_blocks]
-    # assert allocator.get_num_free_blocks(Device.GPU) == num_gpu_blocks
+    blocks_to_swap_out, blocks_to_swap_in = allocator.get_and_reset_swaps(1.0)
 
-    # blocks_to_swap_out, blocks_to_swap_in = allocator.get_and_reset_swaps(2.0)
-    # assert len(blocks_to_swap_out) == 0
-    # assert len(blocks_to_swap_in) == 0
-    # # assert len(allocator._uncached_blocks) == 0
+    assert len(blocks_to_swap_in) == 0
+    assert len(blocks_to_swap_out) == 0
 
-    # # allocate original gpu sequence. It should hit CPU cache.
-    # gpu_blocks = [
-    #     allocator.allocate_immutable_block(prev_block=None,
-    #                                        token_ids=token_ids,
-    #                                        device=Device.GPU)
-    #     for token_ids in gpu_token_ids
-    # ]
+    assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
+    assert allocator.get_num_free_blocks(Device.GPU) == 0
+    assert allocator._allocators[Device.GPU].swap_scheduler.num_blocks == 256
 
-    # delta = num_cpu_blocks - num_gpu_blocks
-    # assert allocator.get_num_free_blocks(Device.CPU) == delta
-    # assert allocator.get_num_free_blocks(Device.GPU) == 0
-    # assert all([
-    #     allocator._allocators[Device.GPU].block_is_computed(block.block_id)
-    #     for block in gpu_blocks
-    # ])
 
-    # blocks_to_swap_out, blocks_to_swap_in = allocator.get_and_reset_swaps(3.0)
-    # assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
+    gpu_blocks2 = [
+        allocator.allocate_immutable_block(prev_block=None,
+                                           token_ids=token_ids,
+                                           device=Device.GPU)
+        for token_ids in gpu_token_ids
+    ]
+
+    assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
+    assert allocator.get_num_free_blocks(Device.GPU) == 0
+    assert allocator._allocators[Device.GPU].swap_scheduler.num_blocks == 0
+
+
+    """
+    Try allocating a different request
+    Should result in block error
+    """
+
+    with pytest.raises(Exception) as e_info:
+        gpu_blocks3 = [
+            allocator.allocate_immutable_block(prev_block=None,
+                                            token_ids=token_ids,
+                                            device=Device.GPU)
+            for token_ids in gpu_token_ids2
+        ]
+    
+    print('[pre] ref_count for block_id = 0', allocator._allocators[Device.GPU]._hashless_allocator._refcounter._refcounts[0])
+    for block in gpu_blocks2:
+        allocator.free(block)
+
+    print('[post] ref_count for block_id = 0', allocator._allocators[Device.GPU]._hashless_allocator._refcounter._refcounts[0])
+
+    num_evicted = allocator.evict_from_swap_scheduler(2048)
+
+    assert num_evicted == 256
+    assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
+    assert allocator.get_num_free_blocks(Device.GPU) == num_gpu_blocks
+    assert allocator._allocators[Device.GPU].swap_scheduler.num_blocks == 0
