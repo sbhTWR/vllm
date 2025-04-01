@@ -908,13 +908,14 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         return blocks
 
 
-    def num_blocks_cached_for_token_ids(
+    def blocks_cached_for_token_ids(
             self,
             prev_block: Optional[Block],
             block_token_ids: List[List[int]],
-            extra_hash: Optional[int] = None) -> int:
+            extra_hash: Optional[int] = None) -> List[int]:
         
         blocks = []
+        block_ids_cached = []
         num_cached_blocks = 0
         for token_ids in block_token_ids:
             prev_block = self._block_pool.init_block(prev_block=prev_block,
@@ -926,6 +927,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             assert prev_block.content_hash is not None
             cached_block_id = self._cached_blocks.get(prev_block.content_hash, None)
             if cached_block_id is not None:
+                block_ids_cached.append(cached_block_id)
                 num_cached_blocks += 1
             else:
                 break
@@ -933,7 +935,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         for block in blocks:    
             self._block_pool.free_block(block)
 
-        return num_cached_blocks
+        return block_ids_cached
 
     def allocate_mutable_block(self,
                                prev_block: Optional[Block],

@@ -225,11 +225,19 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 block_token_ids: List[List[int]],
                 extra_hash: Optional[int] = None) -> int:
         
-        return self._allocators[Device.GPU].num_blocks_cached_for_token_ids(
+        num_blocks_cached = 0
+        block_ids_cached = self._allocators[Device.GPU].blocks_cached_for_token_ids(
             prev_block=prev_block,
             block_token_ids=block_token_ids,
             extra_hash=extra_hash
         )
+
+        for block_id in block_ids_cached:
+            if self._is_gpu_block_unsafe(block_id):
+                num_blocks_cached += 1
+        
+        return num_blocks_cached
+
 
     def allocate_immutable_blocks(
             self,

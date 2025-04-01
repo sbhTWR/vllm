@@ -250,7 +250,6 @@ def test_swap_all(num_cpu_blocks: int, num_gpu_blocks: int,
     assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks - 4 * num_gpu_blocks
     assert allocator.get_num_free_blocks(Device.GPU) == num_gpu_blocks
 
-
     """
     get swap scheduler 
     """
@@ -459,4 +458,21 @@ def test_persist(num_cpu_blocks: int, num_gpu_blocks: int,
         prev_block=None,
         block_token_ids=gpu_token_ids)
     assert num_cached == 256
+
+    # after swapping, num_ccahed should be zero 
+    allocator.mark_blocks_as_computed([block.block_id for block in gpu_blocks])
+
+    # free blocks 
+    for block in gpu_blocks:
+        allocator.free(block)
+
+    blocks_to_swap_out, blocks_to_swap_in = allocator.get_and_reset_swaps(1.0)
+
+    assert len(blocks_to_swap_out) == 0
+
+    num_cached = allocator.num_blocks_cached_for_token_ids(
+        prev_block=None,
+        block_token_ids=gpu_token_ids)
+    assert num_cached == 256
+    
 
