@@ -1843,7 +1843,9 @@ class LLMEngine:
                     ])
             
             for seq_group in self.retrify_finished_seq_groups:
+
                 if seq_group.is_finished():
+                    logger.info("[elasticswap>>>>>>>>>>] logging for seq_id=%d" % seq_group.first_seq.seq_id)
                     # Latency timings
                     time_e2e_requests.append(now -
                                              seq_group.metrics.arrival_time)

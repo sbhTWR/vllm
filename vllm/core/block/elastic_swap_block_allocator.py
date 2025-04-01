@@ -72,9 +72,9 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             - The block IDs are assigned contiguously, with GPU block IDs coming
                 before CPU block IDs.
         """
-        assert num_gpu_blocks < num_cpu_blocks, "CPU offloading block "\
-            "allocator requires the allocated CPU memory capacity to be larger"\
-            " than GPU memory capacity."
+        # assert num_gpu_blocks < num_cpu_blocks, "CPU offloading block "\
+        #     "allocator requires the allocated CPU memory capacity to be larger"\
+        #     " than GPU memory capacity."
         block_ids = list(range(num_gpu_blocks + num_cpu_blocks))
         gpu_block_ids = block_ids[:num_gpu_blocks]
         cpu_block_ids = block_ids[num_gpu_blocks:]

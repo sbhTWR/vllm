@@ -36,6 +36,8 @@ from vllm.transformers_utils.utils import is_s3
 from vllm.utils import (GiB_bytes, LayerBlockType, cuda_device_count_stateless,
                         get_cpu_memory, random_uuid, resolve_obj_by_qualname)
 
+from vllm.core.evictor import SwapStrategy
+
 if TYPE_CHECKING:
     from ray.util.placement_group import PlacementGroup
 
@@ -1073,6 +1075,7 @@ class CacheConfig:
         cpu_offload_gb: float = 0,
         calculate_kv_scales: Optional[bool] = None,
         block_allocator: str = "CpuGpuBlockAllocator",
+        swap_strategy: str = "swap_all",
     ) -> None:
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -1085,6 +1088,7 @@ class CacheConfig:
         self.cpu_offload_gb = cpu_offload_gb
         self.calculate_kv_scales = calculate_kv_scales
         self.block_allocator = block_allocator
+        self.swap_strategy = swap_strategy
         self._verify_args()
         self._verify_cache_dtype()
         self._verify_prefix_caching()
@@ -1114,6 +1118,19 @@ class CacheConfig:
             raise ValueError(
                 "Only CpuGpuBlockAllocator and CpuOffloadingBlockAllocator is "
                 f"supported. Got {self.block_allocator}.")
+
+        if self.swap_strategy not in [
+                "persist", "swap_all"
+        ]:
+            raise ValueError(
+                "Only persist and swap_all is "
+                f"supported. Got {self.swap_strategy}.")
+
+
+        if self.swap_strategy == "persist":
+            self.swap_strategy = SwapStrategy.PERSIST
+        elif self.swap_strategy == "swap_all":
+            self.swap_strategy = SwapStrategy.SWAP_ALL
 
     def _verify_cache_dtype(self) -> None:
         if self.cache_dtype == "auto":

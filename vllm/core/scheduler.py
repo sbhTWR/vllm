@@ -919,7 +919,8 @@ class Scheduler:
             num_cpu_blocks=num_cpu_blocks,
             sliding_window=self.cache_config.sliding_window,
             enable_caching=self.cache_config.enable_prefix_caching,
-            block_allocator=self.cache_config.block_allocator)
+            block_allocator=self.cache_config.block_allocator,
+            swap_strategy=self.cache_config.swap_strategy)
 
         # Sequence groups in the WAITING state.
         # Contain new prefill or preempted requests.
@@ -1826,7 +1827,7 @@ class Scheduler:
             elastic_swap_blocks_to_swap_in.extend((src, dst))
 
         self.memory_pressure_evict_if_necessary()
-        
+
         sched_outputs = SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
             num_prefill_groups=num_prefill_groups,

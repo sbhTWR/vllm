@@ -744,7 +744,7 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
         if self.runner.model_config.is_encoder_decoder:
             encoder_seq_len = seq_group_metadata.encoder_seq_data.get_len()
 
-        logger.info("[elasticswap_debug] block_tables=%s" % seq_group_metadata.block_tables)
+        # logger.info("[elasticswap_debug] block_tables=%s" % seq_group_metadata.block_tables)
 
         inter_data = self.init_cached_inter_data(
             request_id=seq_group_metadata.request_id,
@@ -1000,12 +1000,12 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
         #             )
         # )
 
-        logger.info("[elasticswap]" 
-                    "attn_metadata=%s "
-                    % (
-                        attn_metadata,
-                    )
-        )
+        # logger.info("[elasticswap]" 
+        #             "attn_metadata=%s "
+        #             % (
+        #                 attn_metadata,
+        #             )
+        # )
 
         return self.model_input_cls(
             input_tokens=input_tokens_tensor,

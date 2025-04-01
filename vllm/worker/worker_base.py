@@ -396,8 +396,9 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         """
         Sync here for accurate swapping times.
         """
-        cache_ops_start_t = time.perf_counter()
+        
         torch.cuda.synchronize()
+        cache_ops_start_t = time.perf_counter()
         self.execute_worker(worker_input)
         torch.cuda.synchronize()
         cache_ops_time = time.perf_counter() - cache_ops_start_t

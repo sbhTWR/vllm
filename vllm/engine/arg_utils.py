@@ -112,6 +112,7 @@ class EngineArgs:
     tensor_parallel_size: int = 1
     max_parallel_loading_workers: Optional[int] = None
     block_allocator: str = "CpuGpuBlockAllocator"
+    swap_strategy: str = "swap_all"
     block_size: Optional[int] = None
     enable_prefix_caching: Optional[bool] = False
     disable_sliding_window: bool = False
@@ -440,6 +441,13 @@ class EngineArgs:
             'supports offloading the KV cache to CPU . '
             'When using CpuOffloadingBlockAllocator, the '
             'preemption mode must be recompute.')
+    
+        parser.add_argument(
+            '--swap-strategy',
+            type=str,
+            default='swap_all',
+            choices=['persist', 'swap_all'],
+            help='.')
         # KV cache arguments
         parser.add_argument('--block-size',
                             type=int,
@@ -1130,6 +1138,7 @@ class EngineArgs:
             cpu_offload_gb=self.cpu_offload_gb,
             calculate_kv_scales=self.calculate_kv_scales,
             block_allocator=self.block_allocator,
+            swap_strategy=self.swap_strategy,
         )
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,

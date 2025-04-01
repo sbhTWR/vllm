@@ -16,6 +16,7 @@ from vllm.core.block.utils import check_no_caching_or_swa_for_blockmgr_encdec
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.sequence import Sequence, SequenceGroup, SequenceStatus
 from vllm.utils import Device, cdiv, chunk_list
+from vllm.core.evictor import SwapStrategy
 
 logger = init_logger(__name__)
 
@@ -76,6 +77,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         sliding_window: Optional[int] = None,
         enable_caching: bool = False,
         block_allocator: str = "CpuGpuBlockAllocator",
+        swap_strategy: SwapStrategy = SwapStrategy.SWAP_ALL,
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
@@ -106,6 +108,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             num_gpu_blocks=num_gpu_blocks,
             num_cpu_blocks=num_cpu_blocks,
             block_size=block_size,
+            swap_strategy=swap_strategy,
         )
 
         self.block_tables: Dict[SeqId, BlockTable] = {}
