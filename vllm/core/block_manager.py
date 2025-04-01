@@ -15,7 +15,7 @@ from vllm.core.block.prefix_caching_block import (ComputedBlocksTracker,
 from vllm.core.block.utils import check_no_caching_or_swa_for_blockmgr_encdec
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.sequence import Sequence, SequenceGroup, SequenceStatus
-from vllm.utils import Device
+from vllm.utils import Device, cdiv, chunk_list
 
 logger = init_logger(__name__)
 
@@ -116,6 +116,28 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         self._last_access_blocks_tracker = LastAccessBlocksTracker(
             self.block_allocator)
 
+    def get_num_required_blocks_prefix_aware(
+                                self, 
+                                token_ids: List[int],
+                                block_size: int,
+                                num_lookahead_slots: int = 0) -> int:
+
+        total_uncached_blocks_required = BlockTable.get_num_required_blocks(
+                                token_ids=token_ids,
+                                block_size=block_size,
+                                num_lookahead_slots=num_lookahead_slots
+        )
+
+        assert isinstance(self.block_allocator, CpuOffloadingBlockAllocator)
+        token_ids_chunked = chunk_list(token_ids, self.block_size)
+        num_cached_blocks = self.block_allocator.num_blocks_cached_for_token_ids(
+                                                prev_block=None,
+                                                block_token_ids=token_ids_chunked,
+                                            )
+
+        assert total_uncached_blocks_required >= num_cached_blocks
+        return total_uncached_blocks_required - num_cached_blocks
+
     def can_allocate(self,
                      seq_group: SequenceGroup,
                      num_lookahead_slots: int = 0) -> AllocStatus:
@@ -129,11 +151,19 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         check_no_caching_or_swa_for_blockmgr_encdec(self, seq_group)
 
         seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
-        num_required_blocks = BlockTable.get_num_required_blocks(
-            seq.get_token_ids(),
-            block_size=self.block_size,
-            num_lookahead_slots=num_lookahead_slots,
-        )
+
+        if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
+            num_required_blocks = self.get_num_required_blocks_prefix_aware(
+                seq.get_token_ids(),
+                block_size=self.block_size,
+                num_lookahead_slots=num_lookahead_slots,
+            )
+        else:
+            num_required_blocks = BlockTable.get_num_required_blocks(
+                seq.get_token_ids(),
+                block_size=self.block_size,
+                num_lookahead_slots=num_lookahead_slots,
+            )
 
         if seq_group.is_encoder_decoder():
             encoder_seq = seq_group.get_encoder_seq()

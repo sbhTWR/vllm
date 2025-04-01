@@ -5,6 +5,8 @@ from typing import List, Optional
 
 from vllm.core.block.common import BlockList
 from vllm.core.block.interfaces import Block, DeviceAwareBlockAllocator
+from vllm.core.block.elastic_swap_block_allocator import (
+    CpuOffloadingBlockAllocator)
 from vllm.utils import Device, cdiv, chunk_list
 
 
@@ -79,6 +81,28 @@ class BlockTable:
                 sequence of token IDs along with any required look-ahead slots.
         """
         return cdiv(len(token_ids) + num_lookahead_slots, block_size)
+    
+    def get_num_required_blocks_prefix_aware(
+                                self, 
+                                token_ids: List[int],
+                                block_size: int,
+                                num_lookahead_slots: int = 0) -> int:
+
+        total_uncached_blocks_required = BlockTable.get_num_required_blocks(
+                                token_ids=token_ids,
+                                block_size=block_size,
+                                num_lookahead_slots=num_lookahead_slots
+        )
+
+        assert isinstance(self._allocator, CpuOffloadingBlockAllocator)
+        token_ids_chunked = chunk_list(token_ids, self._block_size)
+        num_cached_blocks = self._allocator.num_blocks_cached_for_token_ids(
+                                                prev_block=None,
+                                                block_token_ids=token_ids_chunked,
+                                            )
+
+        assert total_uncached_blocks_required >= num_cached_blocks
+        return total_uncached_blocks_required - num_cached_blocks
 
     def allocate(self,
                  token_ids: List[int],

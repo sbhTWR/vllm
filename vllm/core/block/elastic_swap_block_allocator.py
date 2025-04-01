@@ -130,6 +130,12 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         self._cached_blocks_cpu: Dict[int, BlockMetaData] = {}
         self.priority_queue = []
 
+    def memory_pressure_evict(self, n):
+        if self._allocators[Device.GPU].swap_scheduler.swap_strategy == SwapStrategy.PERSIST:
+            self.evict_from_swap_scheduler(n)
+        else:
+            self.evict_from_cpu_swap_evictor(n)
+
     def add_to_cpu_swap_evictor(self, block_id, block_metadata):
         self._cached_blocks_cpu[block_id] = block_metadata
         last_accessed = block_metadata.last_accessed

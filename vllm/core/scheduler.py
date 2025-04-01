@@ -1142,6 +1142,22 @@ class Scheduler:
         self._finished_requests_ids = list()
         return finished_requests_ids
 
+    def memory_pressure_evict_if_necessary(
+            self, 
+            waiting_toks_thresh=30000, 
+            num_toks_to_evict=10000):
+        
+        num_tokens_waiting = 0
+
+        for seq_group in self.waiting:
+            seq = seq_group.first_seq
+            toks = seq.get_token_ids()
+            num_tokens_waiting += len(toks)
+        
+        if num_tokens_waiting > waiting_toks_thresh:
+            num_blocks_to_evict = num_toks_to_evict / self.block_manager.block_size
+            self.block_manager.block_allocator.memory_pressure_evict(num_blocks_to_evict)
+
     def _schedule_running(
         self,
         budget: SchedulingBudget,
@@ -1809,7 +1825,8 @@ class Scheduler:
         for src, dst in new_swap_in:
             elastic_swap_blocks_to_swap_in.extend((src, dst))
 
-
+        self.memory_pressure_evict_if_necessary()
+        
         sched_outputs = SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
             num_prefill_groups=num_prefill_groups,
@@ -1932,6 +1949,8 @@ class Scheduler:
 
         logger.info(
                 "[elasticswap] Paused swap out: %s", paused_blocks_to_swap_out)
+
+        self.memory_pressure_evict_if_necessary()
 
         return SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
