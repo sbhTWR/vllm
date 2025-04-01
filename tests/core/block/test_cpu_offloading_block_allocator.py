@@ -445,3 +445,18 @@ def test_persist(num_cpu_blocks: int, num_gpu_blocks: int,
     assert allocator.get_num_free_blocks(Device.CPU) == num_cpu_blocks
     assert allocator.get_num_free_blocks(Device.GPU) == num_gpu_blocks
     assert allocator._allocators[Device.GPU].swap_scheduler.num_blocks == 0
+
+
+    """
+    Verify num cached blocks
+    """
+    gpu_blocks = allocator.allocate_immutable_blocks(prev_block=None,
+                                           block_token_ids=gpu_token_ids,
+                                           device=Device.GPU)
+
+
+    num_cached = allocator.num_blocks_cached_for_token_ids(
+        prev_block=None,
+        block_token_ids=gpu_token_ids)
+    assert num_cached == 256
+
