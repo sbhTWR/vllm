@@ -1151,6 +1151,11 @@ class LLMEngine:
                 for o in outputs:
                     if (isinstance(o, SamplerOutput)
                             and seq_group.metrics is not None):
+                        
+                        # logger.info("[+++metrics+++] o.model_forward_time=%f" % o.model_forward_time)
+                        # logger.info("[+++metrics+++] o.model_execute_time=%f" % o.model_execute_time)
+                        # logger.info("[+++metrics+++] o.cache_ops_time=%f" % o.cache_ops_time)
+
                         if seq_group.metrics.model_forward_time is not None:
                             seq_group.metrics.model_forward_time += (
                                 o.model_forward_time or 0)
@@ -1795,52 +1800,52 @@ class LLMEngine:
                 # the same metadata more than once per request, we standardize
                 # on logging request level information for finished requests,
                 # which can only happen once.
-                if seq_group.is_finished():
-                    # Latency timings
-                    time_e2e_requests.append(now -
-                                             seq_group.metrics.arrival_time)
-                    if (seq_group.metrics.first_scheduled_time is not None and
-                            seq_group.metrics.first_token_time is not None):
-                        time_queue_requests.append(
-                            seq_group.metrics.first_scheduled_time -
-                            seq_group.metrics.arrival_time)
-                        time_prefill_requests.append(
-                            seq_group.metrics.first_token_time -
-                            seq_group.metrics.first_scheduled_time)
-                        time_decode_requests.append(
-                            now - seq_group.metrics.first_token_time)
-                        time_inference_requests.append(
-                            now - seq_group.metrics.first_scheduled_time)
-                    if seq_group.metrics.time_in_queue is not None:
-                        time_in_queue_requests.append(
-                            seq_group.metrics.time_in_queue)
-                    if seq_group.metrics.model_forward_time is not None:
-                        model_forward_time_requests.append(
-                            seq_group.metrics.model_forward_time)
-                    if seq_group.metrics.model_execute_time is not None:
-                        model_execute_time_requests.append(
-                            seq_group.metrics.model_execute_time * 1000)
-                    if seq_group.metrics.cache_ops_time is not None:
-                        cache_ops_time_requests.append(
-                            seq_group.metrics.cache_ops_time * 1000)
-                    # Metadata
-                    num_prompt_tokens_requests.append(
-                        len(seq_group.prompt_token_ids))
-                    num_generation_tokens_requests.extend([
-                        seq.get_output_len()
-                        for seq in seq_group.get_finished_seqs()
-                    ])
-                    max_num_generation_tokens_requests.append(
-                        max(seq.get_output_len()
-                            for seq in seq_group.get_seqs()))
-                    if seq_group.sampling_params is not None:
-                        n_requests.append(seq_group.sampling_params.n)
-                        max_tokens_requests.append(
-                            seq_group.sampling_params.max_tokens)
-                    finished_reason_requests.extend([
-                        SequenceStatus.get_finished_reason(seq.status)
-                        for seq in seq_group.get_finished_seqs()
-                    ])
+                # if seq_group.is_finished():
+                #     # Latency timings
+                #     time_e2e_requests.append(now -
+                #                              seq_group.metrics.arrival_time)
+                #     if (seq_group.metrics.first_scheduled_time is not None and
+                #             seq_group.metrics.first_token_time is not None):
+                #         time_queue_requests.append(
+                #             seq_group.metrics.first_scheduled_time -
+                #             seq_group.metrics.arrival_time)
+                #         time_prefill_requests.append(
+                #             seq_group.metrics.first_token_time -
+                #             seq_group.metrics.first_scheduled_time)
+                #         time_decode_requests.append(
+                #             now - seq_group.metrics.first_token_time)
+                #         time_inference_requests.append(
+                #             now - seq_group.metrics.first_scheduled_time)
+                #     if seq_group.metrics.time_in_queue is not None:
+                #         time_in_queue_requests.append(
+                #             seq_group.metrics.time_in_queue)
+                #     if seq_group.metrics.model_forward_time is not None:
+                #         model_forward_time_requests.append(
+                #             seq_group.metrics.model_forward_time)
+                #     if seq_group.metrics.model_execute_time is not None:
+                #         model_execute_time_requests.append(
+                #             seq_group.metrics.model_execute_time * 1000)
+                #     if seq_group.metrics.cache_ops_time is not None:
+                #         cache_ops_time_requests.append(
+                #             seq_group.metrics.cache_ops_time * 1000)
+                #     # Metadata
+                #     num_prompt_tokens_requests.append(
+                #         len(seq_group.prompt_token_ids))
+                #     num_generation_tokens_requests.extend([
+                #         seq.get_output_len()
+                #         for seq in seq_group.get_finished_seqs()
+                #     ])
+                #     max_num_generation_tokens_requests.append(
+                #         max(seq.get_output_len()
+                #             for seq in seq_group.get_seqs()))
+                #     if seq_group.sampling_params is not None:
+                #         n_requests.append(seq_group.sampling_params.n)
+                #         max_tokens_requests.append(
+                #             seq_group.sampling_params.max_tokens)
+                #     finished_reason_requests.extend([
+                #         SequenceStatus.get_finished_reason(seq.status)
+                #         for seq in seq_group.get_finished_seqs()
+                #     ])
             
             for seq_group in self.retrify_finished_seq_groups:
 
@@ -1861,6 +1866,10 @@ class LLMEngine:
                             now - seq_group.metrics.first_token_time)
                         time_inference_requests.append(
                             now - seq_group.metrics.first_scheduled_time)
+                    
+                    logger.info('[<<<log>>>] seq_group.metrics.cache_ops_time=%f' % seq_group.metrics.cache_ops_time)
+                    logger.info('[<<<log>>>] seq_group.metrics.model_forward_time=%f' % seq_group.metrics.model_forward_time)
+
                     if seq_group.metrics.time_in_queue is not None:
                         time_in_queue_requests.append(
                             seq_group.metrics.time_in_queue * 1000)

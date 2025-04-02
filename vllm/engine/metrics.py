@@ -520,6 +520,12 @@ class CsvStatLogger(StatLoggerBase):
         self.ttft_acc = []
         self.tbt_acc = []
 
+        self.swap_times_requests_acc = []
+        self.scheduler_times_requests_acc = []
+        self.queue_times_requests_acc = []
+        self.model_forward_times_requests_acc = []
+        self.model_exec_times_requests_acc = []
+
         # write header 
         header = ["timestamp", "prompt_throughput_avg", "generation_throughput_avg", 
                    "num_running_reqs", "num_swapped_reqs", "num_waiting_reqs",
@@ -553,6 +559,13 @@ class CsvStatLogger(StatLoggerBase):
         
         self.ttft_acc.extend(stats.time_to_first_tokens_iter)
         self.tbt_acc.extend(stats.time_per_output_tokens_iter)
+
+        self.swap_times_requests_acc.extend(stats.cache_ops_time_requests)
+        self.scheduler_times_requests_acc.extend(stats.scheduler_time_requests)
+        self.queue_times_requests_acc.extend(stats.time_in_queue_requests)
+        self.model_forward_times_requests_acc.extend(stats.model_forward_time_requests)
+        self.model_exec_times_requests_acc.extend(stats.model_execute_time_requests)
+
 
         # Log locally every local_interval seconds.
         if local_interval_elapsed(stats.now, self.last_local_log,
@@ -599,23 +612,24 @@ class CsvStatLogger(StatLoggerBase):
             self.tbt_acc = []
 
             # swap times 
-            swap_times = stats.cache_ops_time_requests
+            # swap_times = stats.cache_ops_time_requests
+            swap_times = self.swap_times_requests_acc
             swap_times_len = len(swap_times)
             swap_t = sum(swap_times) / swap_times_len if swap_times_len != 0 else 0 
 
-            scheduler_times = stats.scheduler_time_requests
+            scheduler_times = self.scheduler_times_requests_acc
             scheduler_times_len = len(scheduler_times)
             sched_t = sum(scheduler_times) / scheduler_times_len if scheduler_times_len != 0 else 0
 
-            queue_times = stats.time_in_queue_requests
+            queue_times = self.queue_times_requests_acc
             queue_times_len = len(queue_times)
             queue_t = sum(queue_times) / queue_times_len if queue_times_len != 0 else 0
 
-            model_forward_times = stats.model_forward_time_requests
+            model_forward_times = self.model_forward_times_requests_acc
             model_forward_times_len = len(model_forward_times)
             model_forward_t = sum(model_forward_times) / model_forward_times_len if model_forward_times_len != 0 else 0
 
-            model_exec_times = stats.model_execute_time_requests
+            model_exec_times = self.model_exec_times_requests_acc
             model_exec_times_len = len(model_exec_times) 
             model_exec_t = sum(model_exec_times) / model_exec_times_len if model_exec_times_len != 0 else 0
 

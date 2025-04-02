@@ -381,6 +381,9 @@ class Worker(LocalOrDistributedWorkerBase):
     def execute_worker(self, worker_input: WorkerInput) -> None:
         virtual_engine = worker_input.virtual_engine
         # Issue cache operations.
+        # logger.info("[elasticswap] worker_input.blocks_to_swap_in=%s" % worker_input.blocks_to_swap_in)
+        # logger.info("[elasticswap] worker_input.blocks_to_swap_out=%s" % worker_input.blocks_to_swap_out)
+        # logger.info("[elasticswap] worker_input.blocks_to_copy=%s" % worker_input.blocks_to_copy)
         if (worker_input.blocks_to_swap_in is not None
                 and worker_input.blocks_to_swap_in.numel() > 0):
             self.cache_engine[virtual_engine].swap_in(

@@ -25,7 +25,9 @@ from vllm.core.block.cpu_gpu_block_allocator import CpuGpuBlockAllocator
 from vllm.core.block.interfaces import Block, DeviceAwareBlockAllocator
 from vllm.core.block.prefix_caching_block import PrefixCachingBlockAllocator, ElasticSwapBlockAllocator, BlockTracker
 from vllm.utils import Device
+from vllm.logger import init_logger
 
+logger = init_logger(__name__)
 
 class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
     """A block allocator that supports CPU KV cache offloading
@@ -507,6 +509,11 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             source to destination block IDs. The block IDs are physical block
             IDs and it's expected to be used by the cache engine directly.
         """
+
+        swap_scheduler = self._allocators[Device.GPU].swap_scheduler
+        num_blocks = swap_scheduler.num_blocks
+        # logger.info("[elasticswap] blocks in swap_scheduler=%d" % num_blocks)
+
 
         blocks_to_swap_out = []
         blocks_to_swap_in = []
