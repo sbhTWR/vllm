@@ -311,9 +311,12 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             extra_hash=extra_hash
         )
 
+        replacement_was_needed = False
         if _block_id_tmp:
             assert content_hash is not None
             if not self._is_gpu_block_unsafe(_block_id_tmp):
+
+                replacement_was_needed = True
                 # allocate a gpu block 
                 gpu_block_id_replacement = self._allocators[device]._allocate_block_id() 
                 # and replace the mapping
@@ -334,10 +337,17 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         # allocate a GPU block
         block = self._allocators[device].allocate_immutable_block(
             prev_block, token_ids, extra_hash=extra_hash)
+        
+        if replacement_was_needed:
+            assert block.block_id == gpu_block_id_replacement
+
         block_id = block.block_id
         assert block_id is not None
         block_computed = self._allocators[device].block_is_computed(block_id)
 
+
+        if replacement_was_needed:
+            assert block_computed == True
         # deal with prefix caching, three cases in total:
         # 1. cache hit on GPU
         # 2. no cache hit on GPU but cache hit on CPU

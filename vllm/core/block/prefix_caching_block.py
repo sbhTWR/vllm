@@ -924,11 +924,14 @@ class ElasticSwapBlockAllocator(BlockAllocator):
                                                 physical_block_id=None,
                                                 extra_hash=extra_hash)
             
-            assert prev_block.content_hash is not None
-            cached_block_id = self._cached_blocks.get(prev_block.content_hash, None)
-            if cached_block_id is not None:
-                block_ids_cached.append(cached_block_id)
-                num_cached_blocks += 1
+            blocks.append(prev_block)
+            if prev_block.content_hash is not None:
+                cached_block_id = self._cached_blocks.get(prev_block.content_hash, None)
+                if cached_block_id is not None:
+                    block_ids_cached.append(cached_block_id)
+                    num_cached_blocks += 1
+                else:
+                    break
             else:
                 break
 
@@ -1220,6 +1223,16 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             # Note that this block cannot be marked as computed yet
             # because other sequences in the same batch cannot reuse
             # this block.
+            self._cached_blocks[block.content_hash] = block.block_id
+            # Mark this block as touched so that it can be marked as
+            # computed after the entire batch of sequences are scheduled.
+            self._touched_blocks.add(block.block_id)
+            return block.block_id
+
+        block_id_cached = self._cached_blocks[block.content_hash]
+        if block_id_cached not in self.all_block_ids:
+            # it is a cpu block, just replace and ignore the block 
+            # TODO: can it lead to a leak?
             self._cached_blocks[block.content_hash] = block.block_id
             # Mark this block as touched so that it can be marked as
             # computed after the entire batch of sequences are scheduled.

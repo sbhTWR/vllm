@@ -316,6 +316,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         block_table = self.block_tables[seq.seq_id]
         
+        # logger.info("[elasticswap] %s" % block_table._blocks._block_ids)
+
         block_table.append_token_ids(
             token_ids=block_table.get_unseen_token_ids(seq.get_token_ids()),
             num_lookahead_slots=num_lookahead_slots,

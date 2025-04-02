@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from typing import Deque, Dict, Iterable, List, Optional, Protocol, Tuple
 
 from vllm.core.block.interfaces import Block, BlockAllocator
+from vllm.logger import init_logger
+
+
+logger = init_logger(__name__)
 
 BlockId = int
 RefCount = int
@@ -42,7 +46,7 @@ class RefCounter(RefCounterProtocol):
         }
 
     def incr(self, block_id: BlockId) -> RefCount:
-        assert block_id in self._refcounts
+        assert block_id in self._refcounts, "block_id=%d" % block_id
         pre_incr_refcount = self._refcounts[block_id]
 
         assert pre_incr_refcount >= 0
@@ -243,6 +247,7 @@ class BlockList:
 
     def _add_block_id(self, block_id: Optional[BlockId]) -> None:
         assert block_id is not None
+        logger.info('[elasticswap_debug] add to block_id=%d' % block_id)
         self._block_ids.append(block_id)
 
     def _update_block_id(self, block_index: int,
@@ -265,6 +270,7 @@ class BlockList:
 
     def append_token_ids(self, block_index: int, token_ids: List[int]) -> None:
         block = self._blocks[block_index]
+        logger.info('[elasticswap_debug] adding to block_id=%d' % block.block_id)
         prev_block_id = block.block_id
 
         block.append_token_ids(token_ids)
