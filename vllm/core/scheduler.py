@@ -1948,8 +1948,8 @@ class Scheduler:
         for src, dst in new_swap_in:
             elastic_swap_blocks_to_swap_in.extend((src, dst))
 
-        logger.info(
-                "[elasticswap] Paused swap out: %s", paused_blocks_to_swap_out)
+        # logger.info(
+                # "[elasticswap] Paused swap out: %s", paused_blocks_to_swap_out)
 
         self.memory_pressure_evict_if_necessary()
 
