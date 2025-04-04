@@ -102,7 +102,8 @@ class FreeBlockSwapScheduler:
             last_accessed, _, block_id, content_hash = heapq.heappop(
                 self.priority_queue)
             
-            if block_id in self.free_table:
+            if (block_id in self.free_table and
+                    self.free_table[block_id].last_accessed == last_accessed):
                 self.free_table.pop(block_id)
                 evicted_block_ids.append((block_id, content_hash))
         

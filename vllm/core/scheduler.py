@@ -1145,7 +1145,7 @@ class Scheduler:
 
     def memory_pressure_evict_if_necessary(
             self, 
-            waiting_toks_thresh=30000, 
+            waiting_toks_thresh=1e6, 
             num_toks_to_evict=10000):
         
         num_tokens_waiting = 0

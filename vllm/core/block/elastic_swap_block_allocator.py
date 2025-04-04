@@ -185,7 +185,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 break
             last_accessed, _, block_id, content_hash = heapq.heappop(
                 self.priority_queue)
-            if block_id in self._cached_blocks_cpu:
+            if (block_id in self._cached_blocks_cpu and 
+                last_accessed == self._cached_blocks_cpu[block_id].last_accessed):
                 self._cached_blocks_cpu.pop(block_id)
                 # print('popped block_id=%d' % block_id)
 
@@ -569,6 +570,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             else:
                 # free cpu blocks 
                 self._allocators[Device.CPU]._free_block_id(src)
+                if src in self._cached_blocks_cpu:
+                    self._cached_blocks_cpu.pop(src)
                 # swap in
                 src = self._get_physical_block_id_unsafe(src)
                 dst = self._get_physical_block_id_unsafe(dst)

@@ -109,7 +109,7 @@ def main():
 
     threads = []
     request_size = 30000
-    interrupt_len = 5
+    interrupt_len = 0.5
     num_interrupts = 5
     rate = 0.1
     t = 120
