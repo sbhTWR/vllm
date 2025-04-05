@@ -1697,6 +1697,13 @@ class LLMEngine:
         num_preemption_iter = (0 if scheduler_outputs is None else
                                scheduler_outputs.preempted)
 
+        model_forward_time_iter: List[float] = []
+        model_execute_time_iter: List[float] = []
+        cache_ops_time_iter: List[float] = []
+        scheduler_time_iter: List[float] = []
+        time_prefill_iters: List[float] = []
+        time_decode_iters: List[float] = []
+
         # Request stats
         #   Latency
         time_e2e_requests: List[float] = []
@@ -1742,6 +1749,7 @@ class LLMEngine:
             # For async postprocessor, already finished sequences need to be
             # not counted (to avoid double counting)
             actual_num_batched_tokens = scheduler_outputs.num_batched_tokens  # type: ignore
+            scheduler_time_iter.append(scheduler_outputs.scheduler_time)
 
             num_generation_tokens_from_prefill_groups = 0
             # NOTE: if scheduler_outputs.num_prefill_groups > 0 and
@@ -1847,6 +1855,7 @@ class LLMEngine:
                 #         for seq in seq_group.get_finished_seqs()
                 #     ])
             
+
             for seq_group in self.retrify_finished_seq_groups:
 
                 if seq_group.is_finished():
@@ -1926,6 +1935,26 @@ class LLMEngine:
             spec_decode_metrics = model_output[0].spec_decode_worker_metrics
         else:
             spec_decode_metrics = None
+        
+
+        # model_forward_time_iter = []
+        # model_execute_time_iter = []
+        # cache_ops_time_iter = []
+        time_prefill_iter = []
+        time_decode_iter = []
+
+        if model_output:
+            for o in model_output:
+                if (isinstance(o, SamplerOutput)):
+                    
+                    # logger.info("[+++metrics+++] o.model_forward_time=%f" % o.model_forward_time)
+                    # logger.info("[+++metrics+++] o.model_execute_time=%f" % o.model_execute_time)
+                    # logger.info("[+++metrics+++] o.cache_ops_time=%f" % o.cache_ops_time)
+
+                    model_forward_time_iter.append(o.model_forward_time)
+                    model_execute_time_iter.append(o.model_execute_time*1000 if o.model_execute_time else 0)
+                    cache_ops_time_iter.append(o.cache_ops_time*1000 if o.cache_ops_time else 0)
+        
 
         return Stats(
             now=now,
@@ -1949,6 +1978,11 @@ class LLMEngine:
             time_per_output_tokens_iter=time_per_output_tokens_iter,
             spec_decode_metrics=spec_decode_metrics,
             num_preemption_iter=num_preemption_iter,
+            
+            model_forward_time_iter=model_forward_time_iter,
+            model_execute_time_iter=model_execute_time_iter,
+            cache_ops_time_iter=cache_ops_time_iter,
+            scheduler_time_iter=scheduler_time_iter,
 
             # Request stats
             #   Latency

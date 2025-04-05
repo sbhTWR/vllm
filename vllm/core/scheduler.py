@@ -156,6 +156,8 @@ class SchedulerOutputs:
     running_queue_size: int
     preempted: int
 
+    scheduler_time: float = 0.0
+
     def __post_init__(self):
         # Swap in and swap out should never happen at the same time.
         # assert not (self.blocks_to_swap_in and self.blocks_to_swap_out)
@@ -2166,6 +2168,10 @@ class Scheduler:
         #     logger.info("[elasticswap][scheduler] scheduler_outputs: %s" % scheduler_outputs)
         #     logger.info("[elasticswap][scheduler] seq_group_metadata_list: %s" % seq_group_metadata_list)
         # Return results
+
+        scheduler_outputs.scheduler_time = scheduler_time * 1000
+
+        # logger.info("[log_es] scheduler_time=%f" % scheduler_outputs.scheduler_time)
 
         return (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc)

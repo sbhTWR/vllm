@@ -526,11 +526,20 @@ class CsvStatLogger(StatLoggerBase):
         self.model_forward_times_requests_acc = []
         self.model_exec_times_requests_acc = []
 
+        self.swap_times_iter_acc = []
+        self.scheduler_times_iter_acc = []
+        self.queue_times_iter_acc = []
+        self.model_forward_times_iter_acc = []
+        self.model_exec_times_iter_acc = []
+
+
         # write header 
         header = ["timestamp", "prompt_throughput_avg", "generation_throughput_avg", 
                    "num_running_reqs", "num_swapped_reqs", "num_waiting_reqs",
                    "gpu_cache_usage", "cpu_cache_usage", "ttft_avg", "tbt_avg",
-                   "swap_t", "queue_t", "model_forward_t", "model_exec_t", "sched_t"]
+                   "swap_t_requests", "queue_t_requests", "model_forward_t_requests", "model_exec_t_requests", "sched_t_requests",
+                   "swap_t_iter", "model_forward_t_iter", "model_exec_t_iter", "sched_t_iter",
+                   ]
 
         self.log_csv.writerow(header)
 
@@ -566,6 +575,10 @@ class CsvStatLogger(StatLoggerBase):
         self.model_forward_times_requests_acc.extend(stats.model_forward_time_requests)
         self.model_exec_times_requests_acc.extend(stats.model_execute_time_requests)
 
+        self.swap_times_iter_acc.extend(stats.cache_ops_time_iter)
+        self.scheduler_times_iter_acc.extend(stats.scheduler_time_iter)
+        self.model_forward_times_iter_acc.extend(stats.model_forward_time_iter)
+        self.model_exec_times_iter_acc.extend(stats.model_execute_time_iter)
 
         # Log locally every local_interval seconds.
         if local_interval_elapsed(stats.now, self.last_local_log,
@@ -611,6 +624,10 @@ class CsvStatLogger(StatLoggerBase):
             self.ttft_acc = []
             self.tbt_acc = []
 
+            """"
+            Request level stats 
+            """
+
             # swap times 
             # swap_times = stats.cache_ops_time_requests
             swap_times = self.swap_times_requests_acc
@@ -633,10 +650,33 @@ class CsvStatLogger(StatLoggerBase):
             model_exec_times_len = len(model_exec_times) 
             model_exec_t = sum(model_exec_times) / model_exec_times_len if model_exec_times_len != 0 else 0
 
+            """
+            Iteration level stats 
+            """
+            swap_times_iter = self.swap_times_iter_acc
+            swap_times_iter_len = len(swap_times_iter)
+            swap_t_iter = sum(swap_times_iter) / swap_times_iter_len if swap_times_iter_len != 0 else 0 
+
+            scheduler_times_iter = self.scheduler_times_iter_acc
+            scheduler_times_iter_len = len(scheduler_times_iter)
+            sched_t_iter = sum(scheduler_times_iter) / scheduler_times_iter_len if scheduler_times_iter_len != 0 else 0
+
+            model_forward_times_iter = self.model_forward_times_iter_acc
+            model_forward_times_iter_len = len(model_forward_times_iter)
+            model_forward_t_iter = sum(model_forward_times_iter) / model_forward_times_iter_len if model_forward_times_iter_len != 0 else 0
+
+            model_exec_times_iter = self.model_exec_times_iter_acc
+            model_exec_times_iter_len = len(model_exec_times_iter) 
+            model_exec_t_iter = sum(model_exec_times_iter) / model_exec_times_iter_len if model_exec_times_iter_len != 0 else 0
+
+            # logger.info("[log_es] model_exec_t_iter=%f model_exec_times_iter_len=%d"
+            #              % (model_exec_t_iter, model_exec_times_iter_len))
+
             row = [now, prompt_throughput_avg, generation_throughput_avg, 
                    num_running_reqs, num_swapped_reqs, num_waiting_reqs,
                    gpu_cache_usage, cpu_cache_usage, ttft_avg, time_per_token_avg,
-                   swap_t, queue_t, model_forward_t, model_exec_t, sched_t]
+                   swap_t, queue_t, model_forward_t, model_exec_t, sched_t,
+                   swap_t_iter, model_forward_t_iter, model_exec_t_iter, sched_t_iter]
 
             self.log_csv.writerow(row)
             self.file_handle.flush()

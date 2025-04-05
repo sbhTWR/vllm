@@ -45,6 +45,11 @@ class Stats:
     time_to_first_tokens_iter: List[float]
     time_per_output_tokens_iter: List[float]
     num_preemption_iter: int
+    
+    model_forward_time_iter: List[float]
+    model_execute_time_iter: List[float]
+    cache_ops_time_iter: List[float]
+    scheduler_time_iter: List[float]
 
     # Request stats (should have _requests suffix)
     #   Latency
