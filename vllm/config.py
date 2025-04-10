@@ -1535,6 +1535,9 @@ class SchedulerConfig:
 
     csv_logger_file_name: str = "vllm_retrify_log.csv"
 
+    evict_token_thresh: int = 1e6
+    evict_token_count: int = 10000
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,

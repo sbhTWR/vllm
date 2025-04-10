@@ -113,6 +113,8 @@ class EngineArgs:
     max_parallel_loading_workers: Optional[int] = None
     block_allocator: str = "CpuGpuBlockAllocator"
     swap_strategy: str = "swap_all"
+    evict_token_thresh: int = 1e6
+    evict_token_count: int = 10000
     block_size: Optional[int] = None
     enable_prefix_caching: Optional[bool] = False
     disable_sliding_window: bool = False
@@ -447,6 +449,16 @@ class EngineArgs:
             type=str,
             default='swap_all',
             choices=['persist', 'swap_all'],
+            help='.')
+        parser.add_argument(
+            '--evict-token-thresh',
+            type=int,
+            default=1e6,
+            help='.')
+        parser.add_argument(
+            '--evict-token-count',
+            type=int,
+            default=10000,
             help='.')
         # KV cache arguments
         parser.add_argument('--block-size',
@@ -1278,6 +1290,8 @@ class EngineArgs:
             policy=self.scheduling_policy,
             finished_requests_policy=self.finished_requests_policy,
             csv_logger_file_name=self.retrify_log_file,
+            evict_token_thresh=self.evict_token_thresh,
+            evict_token_count=self.evict_token_count,
             )
         lora_config = LoRAConfig(
             bias_enabled=self.enable_lora_bias,
@@ -1338,6 +1352,12 @@ class EngineArgs:
             compilation_config=self.compilation_config,
             kv_transfer_config=self.kv_transfer_config,
         )
+
+        # dump configuration 
+        self.file_name_config = self.retrify_log_file.split(".")[0] + "_config.json"
+        with open(self.file_name_config, 'w') as fp:
+            json.dump(vars(self), fp, indent=2)
+
 
         if envs.VLLM_USE_V1:
             self._override_v1_engine_config(config)

@@ -62,6 +62,7 @@ class SimpleMultiTurnWorkload:
 
     def send_fin(self):
         try:
+            print("[%s] sending FIN" % self.user_id)
             chat_completion = self.client.chat.completions.create(
                 messages=[{
                     "role": "user",
@@ -72,12 +73,14 @@ class SimpleMultiTurnWorkload:
                 timeout=1
             )
         except openai.APITimeoutError as e:
-            print("3. ------ END --------")
+            print("[%s] ------ END --------" % self.user_id)
 
     def execute_workload(self):
-
+        
+        message_num = 1
         while self.messages:
             message = self.messages.pop(0)
+            print("[%s] sending message_id=%d" % (self.user_id, message_num))
             chat_completion = self.client.chat.completions.create(
                 messages=message,
                 model=self.model,
@@ -85,12 +88,15 @@ class SimpleMultiTurnWorkload:
                 user=json.dumps({"id": self.user_id, "type": "append"})
             )
 
+            print("[%s] processed message_id=%d" % (self.user_id, message_num))
             print(chat_completion)
 
             if self.interrupts:
                 elapse_t = self.interrupts.pop(0)
-                print('sleeping for %d seconds' % elapse_t)
+                print('[%s] sleeping for %d seconds' % (self.user_id, elapse_t))
                 time.sleep(elapse_t) 
+            
+            message_num += 1
         
         self.send_fin()
 
@@ -111,7 +117,7 @@ def main():
     request_size = 30000
     interrupt_len = 5
     num_interrupts = 5
-    rate = 0.1
+    rate = 0.5
     t = 120
     num_events = int(rate * t)
     exp_times = np.random.exponential(scale=1/rate, size=num_events)

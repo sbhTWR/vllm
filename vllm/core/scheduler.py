@@ -994,6 +994,9 @@ class Scheduler:
             scheduler=self
         )
 
+        self.evict_token_thresh = self.scheduler_config.evict_token_thresh
+        self.evict_token_count = self.scheduler_config.evict_token_count
+
     @property
     def next_cache_id(self):
         return (self.cache_id + 1) % self.num_cache_iters
@@ -1145,10 +1148,7 @@ class Scheduler:
         self._finished_requests_ids = list()
         return finished_requests_ids
 
-    def memory_pressure_evict_if_necessary(
-            self, 
-            waiting_toks_thresh=1e6, 
-            num_toks_to_evict=10000):
+    def memory_pressure_evict_if_necessary(self):
         
         num_tokens_waiting = 0
 
@@ -1157,8 +1157,8 @@ class Scheduler:
             toks = seq.get_token_ids()
             num_tokens_waiting += len(toks)
         
-        if num_tokens_waiting > waiting_toks_thresh:
-            num_blocks_to_evict = num_toks_to_evict / self.block_manager.block_size
+        if num_tokens_waiting > self.evict_token_thresh:
+            num_blocks_to_evict = self.evict_token_count / self.block_manager.block_size
             self.block_manager.block_allocator.memory_pressure_evict(num_blocks_to_evict)
 
     def _schedule_running(

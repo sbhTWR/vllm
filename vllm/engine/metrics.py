@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import time
 import csv
 from typing import TYPE_CHECKING
@@ -509,6 +510,7 @@ class CsvStatLogger(StatLoggerBase):
     def __init__(self, local_interval: float, vllm_config: VllmConfig) -> None:
         super().__init__(local_interval, vllm_config)
         self.file_name = vllm_config.scheduler_config.csv_logger_file_name
+        # self.file_name_config = self.file_name.split(".")[0] + "_config.json"
         self.file_handle = open(self.file_name, 'w')
         self.log_csv = csv.writer(self.file_handle)
 
@@ -531,6 +533,14 @@ class CsvStatLogger(StatLoggerBase):
         self.queue_times_iter_acc = []
         self.model_forward_times_iter_acc = []
         self.model_exec_times_iter_acc = []
+
+        # self.config = {
+        #     'cache_config': vars(vllm_config.cache_config), 
+        #     'scheduler_config': vars(vllm_config.scheduler_config),
+        # }
+
+        # with open(self.file_name_config, 'w') as fp:
+        #     json.dump(self.config, fp)
 
 
         # write header 

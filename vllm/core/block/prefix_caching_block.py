@@ -1719,12 +1719,22 @@ class ComputedBlocksTracker:
             seq.seq_id, [])
         cur_num_blocks_recorded = len(block_hashes_recorded)
         token_ids = seq.get_token_ids()
-        assert len(token_ids) >= cur_num_blocks_recorded * self._block_size, (
-            f"The sequence has {len(token_ids)} tokens, but"
+        # assert len(token_ids) >= cur_num_blocks_recorded * self._block_size, (
+        #     f"The sequence {seq.seq_id} has {len(token_ids)} tokens, but"
+        #     f" already recorded {cur_num_blocks_recorded} blocks. "
+        #     "This should not happen since we assume blocks are "
+        #     "only appended other than recomputation. When the sequence is "
+        #     "recomputed, we should have removed the info of the old blocks.")
+
+        if len(token_ids) < cur_num_blocks_recorded * self._block_size:
+            logger.info(
+            f"The sequence {seq.seq_id} has {len(token_ids)} tokens, but"
             f" already recorded {cur_num_blocks_recorded} blocks. "
             "This should not happen since we assume blocks are "
             "only appended other than recomputation. When the sequence is "
             "recomputed, we should have removed the info of the old blocks.")
+            return
+
         # Update the computed block hashes for the sequence. Since only full
         # blocks are considered as "computed", we take floor here.
         num_computed_blocks = len(token_ids) // self._block_size
