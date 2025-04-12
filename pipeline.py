@@ -1,11 +1,16 @@
 import os
 import sys
 from threading import Thread
+import threading
 import time
 from queue import Queue, Empty
 from os import environ
 from subprocess import call, Popen, PIPE
+from lorem_text import lorem
+
+import numpy as np
 from workload import workload0, workload1
+from elasticswap.test_cyclic_workload_v2 import generate_workload
 
 ON_POSIX = 'posix' in sys.builtin_module_names
 
@@ -18,12 +23,12 @@ class AsyncOutputReader:
         self.last_flushed = time.time()
         self.flush_thresh = flush_thresh
         self.fp = open(filename, "wb+")
-        self.terminate = False
+        self._terminate = False
 
     def enqueue_output(self):
         for line in iter(self.out.readline, b''):
             self.queue.put(line)
-            if self.terminate:
+            if self._terminate:
                 break
         self.out.close()
 
@@ -46,11 +51,11 @@ class AsyncOutputReader:
     def flush_to_file_loop(self):
         while True:
             self.readline_async()
-            if self.terminate:
+            if self._terminate:
                 break 
     
     def terminate(self):
-        self.terminate = True
+        self._terminate = True
 
 def run_sync(cmd, env=None):
     abs_env = environ.copy()
@@ -105,9 +110,9 @@ def run_async(cmd, output_filename, block_until_output=None, timeout=None, env=N
                 raise ValueError(f"Timeout in laucnhing vLLM")
 
 
-def execute_workload(port=8000):
-    # workload0(port)
-    workload1(port)
+# def execute_workload(port=8000):
+#     # workload0(port)
+#     workload1(port)
 
 def ensure_dir(path):
     if not os.path.exists(path):
@@ -188,31 +193,148 @@ def run_experiment(
     p.wait()
     print("Pipeline is done")
 
-def main():
-    config_swapall_le = { 
-        'results_path': "/vllm/vllm/elasticswap/results",
-        'exp_name':  "test-all",
-        'config_name': "swapall-le",
+def execute_workload(port=8000):
+    threads = []
+    request_size = 30000
+    interrupt_len = 5
+    num_interrupts = 5
+    rate = 0.3
+    t = 50
+    num_events = int(rate * t)
+    exp_times = np.random.exponential(scale=1/rate, size=num_events)
+    print(np.cumsum(exp_times))
+    arrival_times = list(exp_times)
 
-        'env': {
-            'CUDA_VISIBLE_DEVICES': '0',
+    print(arrival_times)
+    # input()
+
+    print('--- test1 ---')
+    req1 = lorem.words(100)
+    print(req1)
+    
+    print('--- test2 ---')
+    req2 = lorem.words(100)
+    print(req2)
+
+    # input()
+
+    for i in range(num_events):
+        workload = generate_workload(request_size, interrupt_len, num_interrupts, "test_%d" % i)
+        th = threading.Thread(target=workload.execute_workload, args=())
+        threads.append(th)
+
+    for thread in threads:
+        wait_time = arrival_times.pop(0)
+        time.sleep(wait_time)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+def main():
+    env = {
+            'CUDA_VISIBLE_DEVICES': '2',
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
+        }
+    
+    exp_name = "baselines2"
+
+    exps = [
+        # { 
+        #     'results_path': "/vllm/vllm/elasticswap/results",
+        #     'exp_name':  exp_name,
+        #     'config_name': "swapall-le",
+        #     'env': env,
+        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+        #     'tp_size': 1, 
+        #     'pp_size': 1, 
+        #     'swap_space': 100,
+        #     'evict_token_thresh': 1000000,
+        #     'evict_token_count': 10000,
+        #     'enable_chunked_prefill': False,
+        #     'fr_policy': "pause_recompute",
+        #     'swap_strategy': "swap_all",
+        #     'block_allocator': "CpuOffloadingBlockAllocator",
+        #     'port': 8000,
+        # },
+
+        # { 
+        #     'results_path': "/vllm/vllm/elasticswap/results",
+        #     'exp_name':  exp_name,
+        #     'config_name': "persist-le",
+        #     'env': env,
+        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+        #     'tp_size': 1, 
+        #     'pp_size': 1, 
+        #     'swap_space': 100,
+        #     'evict_token_thresh': 1000000,
+        #     'evict_token_count': 10000,
+        #     'enable_chunked_prefill': False,
+        #     'fr_policy': "pause_recompute",
+        #     'swap_strategy': "persist",
+        #     'block_allocator': "CpuOffloadingBlockAllocator",
+        #     'port': 8000,
+        # },
+
+        # { 
+        #     'results_path': "/vllm/vllm/elasticswap/results",
+        #     'exp_name':  exp_name,
+        #     'config_name': "swapall-he",
+        #     'env': env,
+        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+        #     'tp_size': 1, 
+        #     'pp_size': 1, 
+        #     'swap_space': 100,
+        #     'evict_token_thresh': 30000,
+        #     'evict_token_count': 10000,
+        #     'enable_chunked_prefill': False,
+        #     'fr_policy': "pause_recompute",
+        #     'swap_strategy': "swap_all",
+        #     'block_allocator': "CpuOffloadingBlockAllocator",
+        #     'port': 8000,
+        # },
+
+        # { 
+        #     'results_path': "/vllm/vllm/elasticswap/results",
+        #     'exp_name':  exp_name,
+        #     'config_name': "persist-he",
+        #     'env': env,
+        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+        #     'tp_size': 1, 
+        #     'pp_size': 1, 
+        #     'swap_space': 100,
+        #     'evict_token_thresh': 30000,
+        #     'evict_token_count': 10000,
+        #     'enable_chunked_prefill': False,
+        #     'fr_policy': "pause_recompute",
+        #     'swap_strategy': "persist",
+        #     'block_allocator': "CpuOffloadingBlockAllocator",
+        #     'port': 8000,
+        # },
+
+        { 
+            'results_path': "/vllm/vllm/elasticswap/results",
+            'exp_name':  exp_name,
+            'config_name': "default",
+            'env': env,
+            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+            'tp_size': 1, 
+            'pp_size': 1, 
+            'swap_space': 100,
+            'evict_token_thresh': 1000000,
+            'evict_token_count': 10000,
+            'enable_chunked_prefill': False,
+            'fr_policy': "pause_recompute",
+            'swap_strategy': "swap_all",
+            'block_allocator': "CpuGpuBlockAllocator",
+            'port': 8000,
         },
 
-        'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-        'tp_size': 1, 
-        'pp_size': 1, 
-        'swap_space': 100,
-        'evict_token_thresh': 1000000,
-        'evict_token_count': 10000,
-        'enable_chunked_prefill': False,
-        'fr_policy': "pause_recompute",
-        'swap_strategy': "swap_all",
-        'block_allocator': "CpuOffloadingBlockAllocator",
-        'port': 8000,
-    }
+    ]
 
-    run_experiment(**config_swapall_le)
+    for exp in exps:
+        print('Running experiment %s - %s' % (exp['exp_name'], exp['config_name']))
+        run_experiment(**exp)
 
 
 if __name__ == "__main__":

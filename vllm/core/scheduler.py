@@ -1820,15 +1820,17 @@ class Scheduler:
         # NOTE(Kuntai): extend the swapping list for CPU offloading
         elastic_swap_blocks_to_swap_out = []
         elastic_swap_blocks_to_swap_in = []
+        
+        # logger.info("[elasticswap] block_allocator=%s" % self.cache_config.block_allocator)
+        if self.cache_config.block_allocator != "CpuGpuBlockAllocator":
+            new_swap_out, new_swap_in = \
+                    self.block_manager.get_and_reset_swaps(time.time())
+            for src, dst in new_swap_out:
+                elastic_swap_blocks_to_swap_out.extend((src, dst))
+            for src, dst in new_swap_in:
+                elastic_swap_blocks_to_swap_in.extend((src, dst))
 
-        new_swap_out, new_swap_in = \
-                self.block_manager.get_and_reset_swaps(time.time())
-        for src, dst in new_swap_out:
-            elastic_swap_blocks_to_swap_out.extend((src, dst))
-        for src, dst in new_swap_in:
-            elastic_swap_blocks_to_swap_in.extend((src, dst))
-
-        self.memory_pressure_evict_if_necessary()
+            self.memory_pressure_evict_if_necessary()
 
         sched_outputs = SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,

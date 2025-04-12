@@ -349,7 +349,7 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
             success = success and allocator.reset_prefix_cache()
         return success
 
-    def get_and_reset_swaps(self) -> List[Tuple[int, int]]:
+    def get_and_reset_swaps(self, unused) -> List[Tuple[int, int]]:
         """Returns and clears the mapping of source to destination block IDs.
         Will be called after every swapping operations for now, and after every
         schedule when BlockManagerV2 become default. Currently not useful.

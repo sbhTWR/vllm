@@ -1,14 +1,14 @@
 Loading safetensors checkpoint shards:   0% Completed | 0/7 [00:00<?, ?it/s]
 Loading safetensors checkpoint shards:  14% Completed | 1/7 [00:00<00:04,  1.20it/s]
-Loading safetensors checkpoint shards:  29% Completed | 2/7 [00:01<00:04,  1.12it/s]
+Loading safetensors checkpoint shards:  29% Completed | 2/7 [00:01<00:04,  1.14it/s]
 Loading safetensors checkpoint shards:  43% Completed | 3/7 [00:02<00:03,  1.08it/s]
 Loading safetensors checkpoint shards:  57% Completed | 4/7 [00:03<00:02,  1.35it/s]
-Loading safetensors checkpoint shards:  71% Completed | 5/7 [00:04<00:01,  1.28it/s]
-Loading safetensors checkpoint shards:  86% Completed | 6/7 [00:04<00:00,  1.26it/s]
-Loading safetensors checkpoint shards: 100% Completed | 7/7 [00:05<00:00,  1.17it/s]
+Loading safetensors checkpoint shards:  71% Completed | 5/7 [00:04<00:01,  1.29it/s]
+Loading safetensors checkpoint shards:  86% Completed | 6/7 [00:04<00:00,  1.25it/s]
+Loading safetensors checkpoint shards: 100% Completed | 7/7 [00:05<00:00,  1.16it/s]
 Loading safetensors checkpoint shards: 100% Completed | 7/7 [00:05<00:00,  1.20it/s]
 
-INFO:     Started server process [11519]
+INFO:     Started server process [22602]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

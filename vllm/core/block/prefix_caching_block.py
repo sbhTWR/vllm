@@ -672,6 +672,9 @@ class PrefixCachingBlockAllocator(BlockAllocator):
             self._block_pool.free_block(tmp_block)
 
             block.block_id = block_id  # Assign block_id
+    
+    def get_and_reset_swaps(self):
+        return []
 
     def find_cached_blocks_prefix(self, block_hashes: List[int]) -> List[int]:
         """
