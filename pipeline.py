@@ -11,6 +11,7 @@ from lorem_text import lorem
 import numpy as np
 from workload import workload0, workload1
 from elasticswap.test_cyclic_workload_v2 import generate_workload
+import shutil
 
 rng = np.random.default_rng(seed=42)
 
@@ -200,7 +201,7 @@ def execute_workload(port=8000):
     request_size = 30000
     interrupt_len = 5
     num_interrupts = 5
-    rate = 0.3
+    rate = 0.15
     t = 50
     num_events = int(rate * t)
     exp_times = rng.exponential(scale=1/rate, size=num_events)
@@ -240,11 +241,15 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
     
-    exp_name = "baselines5"
+    exp_name = "baselines6"
+    results_path = "/vllm/vllm/elasticswap/results"
+    copied_script_name = "pipeline.py"
+
+    shutil.copy(__file__, results_path + os.sep + copied_script_name) 
 
     exps = [
         { 
-            'results_path': "/vllm/vllm/elasticswap/results",
+            'results_path': results_path,
             'exp_name':  exp_name,
             'config_name': "swapall-le",
             'env': env,
@@ -262,7 +267,7 @@ def main():
         },
 
         { 
-            'results_path': "/vllm/vllm/elasticswap/results",
+            'results_path': results_path,
             'exp_name':  exp_name,
             'config_name': "persist-le",
             'env': env,
@@ -280,7 +285,7 @@ def main():
         },
 
         { 
-            'results_path': "/vllm/vllm/elasticswap/results",
+            'results_path': results_path,
             'exp_name':  exp_name,
             'config_name': "swapall-he",
             'env': env,
@@ -298,7 +303,7 @@ def main():
         },
 
         { 
-            'results_path': "/vllm/vllm/elasticswap/results",
+            'results_path': results_path,
             'exp_name':  exp_name,
             'config_name': "persist-he",
             'env': env,
@@ -316,7 +321,7 @@ def main():
         },
 
         { 
-            'results_path': "/vllm/vllm/elasticswap/results",
+            'results_path': results_path,
             'exp_name':  exp_name,
             'config_name': "default",
             'env': env,
@@ -334,7 +339,7 @@ def main():
         },
 
         { 
-            'results_path': "/vllm/vllm/elasticswap/results",
+            'results_path': results_path,
             'exp_name':  exp_name,
             'config_name': "persist_he-pp2",
             'env': env,
@@ -352,7 +357,7 @@ def main():
         },
 
         { 
-            'results_path': "/vllm/vllm/elasticswap/results",
+            'results_path': results_path,
             'exp_name':  exp_name,
             'config_name': "persist_le-pp2",
             'env': env,
@@ -371,7 +376,7 @@ def main():
 
 
         { 
-            'results_path': "/vllm/vllm/elasticswap/results",
+            'results_path': results_path,
             'exp_name':  exp_name,
             'config_name': "persist_le-tp2pp2",
             'env': env,
