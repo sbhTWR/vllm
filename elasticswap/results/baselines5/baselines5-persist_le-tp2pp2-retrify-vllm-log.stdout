@@ -1,0 +1,244 @@
+INFO 04-13 18:44:22 __init__.py:186] Automatically detected platform cuda.
+INFO 04-13 18:44:24 api_server.py:840] vLLM API server version 0.1.dev4408+g33e0602
+INFO 04-13 18:44:24 api_server.py:841] args: Namespace(host=None, port=8000, uvicorn_log_level='info', allow_credentials=False, allowed_origins=['*'], allowed_methods=['*'], allowed_headers=['*'], api_key=None, lora_modules=None, prompt_adapters=None, chat_template=None, chat_template_content_format='auto', response_role='assistant', ssl_keyfile=None, ssl_certfile=None, ssl_ca_certs=None, ssl_cert_reqs=0, root_path=None, middleware=[], return_tokens_as_token_ids=False, disable_frontend_multiprocessing=False, enable_request_id_headers=False, enable_auto_tool_choice=False, enable_reasoning=False, reasoning_parser=None, tool_call_parser=None, tool_parser_plugin='', model='princeton-nlp/Llama-3-8B-ProLong-64k-Instruct', task='auto', tokenizer=None, skip_tokenizer_init=False, revision=None, code_revision=None, tokenizer_revision=None, tokenizer_mode='auto', trust_remote_code=False, allowed_local_media_path=None, download_dir=None, load_format='auto', config_format=<ConfigFormat.AUTO: 'auto'>, dtype='auto', kv_cache_dtype='auto', max_model_len=None, guided_decoding_backend='xgrammar', logits_processor_pattern=None, model_impl='auto', distributed_executor_backend=None, pipeline_parallel_size=2, tensor_parallel_size=2, max_parallel_loading_workers=None, ray_workers_use_nsight=False, block_allocator='CpuOffloadingBlockAllocator', swap_strategy='persist', evict_token_thresh=1000000, evict_token_count=10000, block_size=None, enable_prefix_caching=True, disable_sliding_window=False, use_v2_block_manager=True, num_lookahead_slots=0, seed=0, swap_space=100.0, cpu_offload_gb=0, gpu_memory_utilization=0.9, num_gpu_blocks_override=None, max_num_batched_tokens=None, max_num_seqs=None, max_logprobs=20, disable_log_stats=False, quantization=None, rope_scaling=None, rope_theta=None, hf_overrides=None, enforce_eager=True, max_seq_len_to_capture=8192, disable_custom_all_reduce=False, tokenizer_pool_size=0, tokenizer_pool_type='ray', tokenizer_pool_extra_config=None, limit_mm_per_prompt=None, mm_processor_kwargs=None, disable_mm_preprocessor_cache=False, enable_lora=False, enable_lora_bias=False, max_loras=1, max_lora_rank=16, lora_extra_vocab_size=256, lora_dtype='auto', long_lora_scaling_factors=None, max_cpu_loras=None, fully_sharded_loras=False, enable_prompt_adapter=False, max_prompt_adapters=1, max_prompt_adapter_token=0, device='auto', num_scheduler_steps=1, multi_step_stream_outputs=True, scheduler_delay_factor=0.0, enable_chunked_prefill=False, speculative_model=None, speculative_model_quantization=None, num_speculative_tokens=None, speculative_disable_mqa_scorer=False, speculative_draft_tensor_parallel_size=None, speculative_max_model_len=None, speculative_disable_by_batch_size=None, ngram_prompt_lookup_max=None, ngram_prompt_lookup_min=None, spec_decoding_acceptance_method='rejection_sampler', typical_acceptance_sampler_posterior_threshold=None, typical_acceptance_sampler_posterior_alpha=None, disable_logprobs_during_spec_decoding=None, model_loader_extra_config=None, ignore_patterns=[], preemption_mode=None, served_model_name=None, qlora_adapter_name_or_path=None, otlp_traces_endpoint=None, collect_detailed_traces='all', disable_async_output_proc=False, scheduling_policy='fcfs', finished_requests_policy='pause_recompute', retrify_log_file='/vllm/vllm/elasticswap/results/baselines5/baselines5-persist_le-tp2pp2-retrify-vllm-log.csv', override_neuron_config=None, override_pooler_config=None, compilation_config=None, kv_transfer_config=None, worker_cls='auto', generation_config=None, override_generation_config=None, enable_sleep_mode=False, calculate_kv_scales=False, disable_log_requests=False, max_log_len=None, disable_fastapi_docs=False, enable_prompt_tokens_details=False)
+INFO 04-13 18:44:25 config.py:2420] Downcasting torch.float32 to torch.float16.
+INFO 04-13 18:44:30 config.py:544] This model supports multiple tasks: {'classify', 'generate', 'score', 'embed', 'reward'}. Defaulting to 'generate'.
+INFO 04-13 18:44:31 config.py:1425] Defaulting to use mp for distributed inference
+WARNING 04-13 18:44:31 arg_utils.py:1204] The model has a long context length (65536). This may cause OOM errors during the initial memory profiling phase, or result in low performance due to small KV cache space. Consider setting --max-model-len to a smaller value.
+WARNING 04-13 18:44:31 config.py:671] Async output processing can not be enabled with pipeline parallel
+INFO 04-13 18:44:31 llm_engine.py:258] Initializing a V0 LLM engine (v0.1.dev4408+g33e0602) with config: model='princeton-nlp/Llama-3-8B-ProLong-64k-Instruct', speculative_config=None, tokenizer='princeton-nlp/Llama-3-8B-ProLong-64k-Instruct', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, override_neuron_config=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.float16, max_seq_len=65536, download_dir=None, load_format=auto, tensor_parallel_size=2, pipeline_parallel_size=2, disable_custom_all_reduce=False, quantization=None, enforce_eager=True, kv_cache_dtype=auto,  device_config=cuda, decoding_config=DecodingConfig(guided_decoding_backend='xgrammar'), observability_config=ObservabilityConfig(otlp_traces_endpoint=None, collect_model_forward_time=True, collect_model_execute_time=True), seed=0, served_model_name=princeton-nlp/Llama-3-8B-ProLong-64k-Instruct, num_scheduler_steps=1, multi_step_stream_outputs=True, enable_prefix_caching=True, chunked_prefill_enabled=False, use_async_output_proc=False, disable_mm_preprocessor_cache=False, mm_processor_kwargs=None, pooler_config=None, compilation_config={"splitting_ops":[],"compile_sizes":[],"cudagraph_capture_sizes":[],"max_capture_size":0}, use_cached_outputs=False, 
+WARNING 04-13 18:44:31 multiproc_worker_utils.py:300] Reducing Torch parallelism from 255 threads to 1 to avoid unnecessary CPU contention. Set OMP_NUM_THREADS in the external environment to tune this value as needed.
+INFO 04-13 18:44:31 custom_cache_manager.py:19] Setting Triton cache manager to: vllm.triton_utils.custom_cache_manager:CustomCacheManager
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:31 multiproc_worker_utils.py:229] Worker ready; awaiting tasks
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:31 multiproc_worker_utils.py:229] Worker ready; awaiting tasks
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:31 multiproc_worker_utils.py:229] Worker ready; awaiting tasks
+INFO 04-13 18:44:32 cuda.py:230] Using Flash Attention backend.
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:33 cuda.py:230] Using Flash Attention backend.
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:33 cuda.py:230] Using Flash Attention backend.
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:33 cuda.py:230] Using Flash Attention backend.
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:35 utils.py:940] Found nccl from library libnccl.so.2
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:35 utils.py:940] Found nccl from library libnccl.so.2
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:35 pynccl.py:69] vLLM is using nccl==2.21.5
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:35 pynccl.py:69] vLLM is using nccl==2.21.5
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:35 utils.py:940] Found nccl from library libnccl.so.2
+INFO 04-13 18:44:35 utils.py:940] Found nccl from library libnccl.so.2
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:35 pynccl.py:69] vLLM is using nccl==2.21.5
+INFO 04-13 18:44:35 pynccl.py:69] vLLM is using nccl==2.21.5
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:38 custom_all_reduce_utils.py:244] reading GPU P2P access cache from /root/.cache/vllm/gpu_p2p_access_cache_for_0,1,2,3.json
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:38 custom_all_reduce_utils.py:244] reading GPU P2P access cache from /root/.cache/vllm/gpu_p2p_access_cache_for_0,1,2,3.json
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:38 custom_all_reduce_utils.py:244] reading GPU P2P access cache from /root/.cache/vllm/gpu_p2p_access_cache_for_0,1,2,3.json
+INFO 04-13 18:44:38 custom_all_reduce_utils.py:244] reading GPU P2P access cache from /root/.cache/vllm/gpu_p2p_access_cache_for_0,1,2,3.json
+INFO 04-13 18:44:38 shm_broadcast.py:258] vLLM message queue communication handle: Handle(connect_ip='127.0.0.1', local_reader_ranks=[1], buffer_handle=(1, 4194304, 6, 'psm_4d6634ba'), local_subscribe_port=53761, remote_subscribe_port=None)
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:38 shm_broadcast.py:258] vLLM message queue communication handle: Handle(connect_ip='127.0.0.1', local_reader_ranks=[1], buffer_handle=(1, 4194304, 6, 'psm_e64a89df'), local_subscribe_port=48457, remote_subscribe_port=None)
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:38 utils.py:940] Found nccl from library libnccl.so.2
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:38 utils.py:940] Found nccl from library libnccl.so.2
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:38 pynccl.py:69] vLLM is using nccl==2.21.5
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:38 pynccl.py:69] vLLM is using nccl==2.21.5
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:38 utils.py:940] Found nccl from library libnccl.so.2
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:38 pynccl.py:69] vLLM is using nccl==2.21.5
+INFO 04-13 18:44:38 utils.py:940] Found nccl from library libnccl.so.2
+INFO 04-13 18:44:38 pynccl.py:69] vLLM is using nccl==2.21.5
+INFO 04-13 18:44:38 model_runner.py:1139] Starting to load model princeton-nlp/Llama-3-8B-ProLong-64k-Instruct...
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:38 model_runner.py:1139] Starting to load model princeton-nlp/Llama-3-8B-ProLong-64k-Instruct...
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:38 model_runner.py:1139] Starting to load model princeton-nlp/Llama-3-8B-ProLong-64k-Instruct...
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:38 model_runner.py:1139] Starting to load model princeton-nlp/Llama-3-8B-ProLong-64k-Instruct...
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:38 weight_utils.py:252] Using model weights format ['*.safetensors']
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:38 weight_utils.py:252] Using model weights format ['*.safetensors']
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:38 weight_utils.py:252] Using model weights format ['*.safetensors']
+INFO 04-13 18:44:38 weight_utils.py:252] Using model weights format ['*.safetensors']
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:42 model_runner.py:1144] Loading model weights took 3.7561 GB
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:42 model_runner.py:1144] Loading model weights took 3.7561 GB
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:43 model_runner.py:1144] Loading model weights took 3.7561 GB
+INFO 04-13 18:44:43 model_runner.py:1144] Loading model weights took 3.7561 GB
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:44 worker.py:267] Memory profiling takes 1.13 seconds
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:44 worker.py:267] the current vLLM instance can use total_gpu_memory (79.19GiB) x gpu_memory_utilization (0.90) = 71.27GiB
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:44 worker.py:267] model weights take 3.76GiB; non_torch_memory takes 0.93GiB; PyTorch activation peak memory takes 4.66GiB; the rest of the memory reserved for KV Cache is 61.92GiB.
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:44 worker.py:267] Memory profiling takes 1.20 seconds
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:44 worker.py:267] the current vLLM instance can use total_gpu_memory (79.19GiB) x gpu_memory_utilization (0.90) = 71.27GiB
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:44 worker.py:267] model weights take 3.76GiB; non_torch_memory takes 1.00GiB; PyTorch activation peak memory takes 4.66GiB; the rest of the memory reserved for KV Cache is 61.86GiB.
+INFO 04-13 18:44:45 model_runner_base.py:122] Writing input of failed execution to /tmp/err_execute_model_input_20250413-184445.pkl...
+INFO 04-13 18:44:45 model_runner_base.py:151] Completed writing input of failed execution to /tmp/err_execute_model_input_20250413-184445.pkl.
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:45 model_runner_base.py:122] Writing input of failed execution to /tmp/err_execute_model_input_20250413-184445.pkl...
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:45 model_runner_base.py:151] Completed writing input of failed execution to /tmp/err_execute_model_input_20250413-184445.pkl.
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] Exception in worker VllmWorkerProcess while processing method determine_num_available_blocks.
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] Traceback (most recent call last):
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/output_graph.py", line 1446, in _call_user_compiler
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_fn = compiler_fn(gm, self.example_inputs())
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/repro/after_dynamo.py", line 129, in __call__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_gm = compiler_fn(gm, example_inputs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/__init__.py", line 2234, in __call__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return compile_fx(model_, inputs_, config_patches=self.config)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/compile_fx.py", line 1521, in compile_fx
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return aot_autograd(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/backends/common.py", line 72, in __call__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     cg = aot_module_simplified(gm, example_inputs, **self.kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_functorch/aot_autograd.py", line 1071, in aot_module_simplified
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_fn = dispatch_and_compile()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_functorch/aot_autograd.py", line 1056, in dispatch_and_compile
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_fn, _ = create_aot_dispatcher_function(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_functorch/aot_autograd.py", line 522, in create_aot_dispatcher_function
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return _create_aot_dispatcher_function(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_functorch/aot_autograd.py", line 759, in _create_aot_dispatcher_function
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_fn, fw_metadata = compiler_fn(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_functorch/_aot_autograd/jit_compile_runtime_wrappers.py", line 179, in aot_dispatch_base
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_fw = compiler(fw_module, updated_flat_args)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/compile_fx.py", line 1350, in fw_compiler_base
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return _fw_compiler_base(model, example_inputs, is_inference)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/compile_fx.py", line 1421, in _fw_compiler_base
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return inner_compile(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/compile_fx.py", line 475, in compile_fx_inner
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return wrap_compiler_debug(_compile_fx_inner, compiler_name="inductor")(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/repro/after_aot.py", line 85, in debug_wrapper
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     inner_compiled_fn = compiler_fn(gm, example_inputs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/compile_fx.py", line 661, in _compile_fx_inner
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_graph = FxGraphCache.load(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/codecache.py", line 1334, in load
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_graph = compile_fx_fn(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/compile_fx.py", line 570, in codegen_and_compile
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_graph = fx_codegen_and_compile(gm, example_inputs, **fx_kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/compile_fx.py", line 878, in fx_codegen_and_compile
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_fn = graph.compile_to_fn()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/graph.py", line 1913, in compile_to_fn
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self.compile_to_module().call
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/graph.py", line 1839, in compile_to_module
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self._compile_to_module()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/graph.py", line 1845, in _compile_to_module
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.codegen_with_cpp_wrapper() if self.cpp_wrapper else self.codegen()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/graph.py", line 1784, in codegen
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.scheduler.codegen()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/scheduler.py", line 3383, in codegen
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self._codegen()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/scheduler.py", line 3461, in _codegen
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.get_backend(device).codegen_node(node)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/codegen/cuda_combined_scheduling.py", line 80, in codegen_node
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self._triton_scheduling.codegen_node(node)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/codegen/simd.py", line 1155, in codegen_node
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self.codegen_node_schedule(node_schedule, buf_accesses, numel, rnumel)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/codegen/simd.py", line 1364, in codegen_node_schedule
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     src_code = kernel.codegen_kernel()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/codegen/triton.py", line 2661, in codegen_kernel
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     **self.inductor_meta_common(),
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_inductor/codegen/triton.py", line 2532, in inductor_meta_common
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     "backend_hash": torch.utils._triton.triton_hash_with_backend(),
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/utils/_triton.py", line 53, in triton_hash_with_backend
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     backend = triton_backend()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/utils/_triton.py", line 45, in triton_backend
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     target = driver.active.get_current_target()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/triton/runtime/driver.py", line 23, in __getattr__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self._initialize_obj()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/triton/runtime/driver.py", line 20, in _initialize_obj
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self._obj = self._init_fn()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/triton/runtime/driver.py", line 9, in _create_driver
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return actives[0]()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/triton/backends/nvidia/driver.py", line 371, in __init__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.utils = CudaUtils()  # TODO: make static
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/triton/backends/nvidia/driver.py", line 80, in __init__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     mod = compile_module_from_src(Path(os.path.join(dirname, "driver.c")).read_text(), "cuda_utils")
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/triton/backends/nvidia/driver.py", line 57, in compile_module_from_src
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     so = _build(name, src_path, tmpdir, library_dirs(), include_dir, libraries)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/triton/runtime/build.py", line 32, in _build
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     raise RuntimeError("Failed to find C compiler. Please specify via CC environment variable.")
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] RuntimeError: Failed to find C compiler. Please specify via CC environment variable.
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] 
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] The above exception was the direct cause of the following exception:
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] 
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] Traceback (most recent call last):
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/worker/model_runner_base.py", line 118, in _wrapper
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return func(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/worker/model_runner.py", line 1749, in execute_model
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     hidden_or_intermediate_states = model_executable(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self._call_impl(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return forward_call(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/model_executor/models/llama.py", line 541, in forward
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     model_output = self.model(input_ids, positions, kv_caches,
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/compilation/decorators.py", line 172, in __call__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self.forward(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/model_executor/models/llama.py", line 356, in forward
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     hidden_states = self.get_input_embeddings(input_ids)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/model_executor/models/llama.py", line 341, in get_input_embeddings
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self.embed_tokens(input_ids)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self._call_impl(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return forward_call(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/model_executor/layers/vocab_parallel_embedding.py", line 406, in forward
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     masked_input, input_mask = get_masked_input_and_mask(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/eval_frame.py", line 465, in _fn
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return fn(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/convert_frame.py", line 1269, in __call__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self._torchdynamo_orig_callable(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/convert_frame.py", line 1064, in __call__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     result = self._inner_convert(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/convert_frame.py", line 526, in __call__
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return _compile(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/convert_frame.py", line 924, in _compile
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     guarded_code = compile_inner(code, one_graph, hooks, transform)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/convert_frame.py", line 666, in compile_inner
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return _compile_inner(code, one_graph, hooks, transform)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_utils_internal.py", line 87, in wrapper_function
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return function(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/convert_frame.py", line 699, in _compile_inner
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     out_code = transform_code_object(code, transform)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/bytecode_transformation.py", line 1322, in transform_code_object
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     transformations(instructions, code_options)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/convert_frame.py", line 219, in _fn
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return fn(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/convert_frame.py", line 634, in transform
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     tracer.run()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/symbolic_convert.py", line 2796, in run
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     super().run()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/symbolic_convert.py", line 983, in run
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     while self.step():
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/symbolic_convert.py", line 895, in step
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.dispatch_table[inst.opcode](self, inst)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/symbolic_convert.py", line 2987, in RETURN_VALUE
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self._return(inst)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/symbolic_convert.py", line 2972, in _return
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.output.compile_subgraph(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/output_graph.py", line 1142, in compile_subgraph
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.compile_and_call_fx_graph(tx, pass2.graph_output_vars(), root)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/output_graph.py", line 1369, in compile_and_call_fx_graph
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     compiled_fn = self.call_user_compiler(gm)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/output_graph.py", line 1416, in call_user_compiler
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return self._call_user_compiler(gm)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/_dynamo/output_graph.py", line 1465, in _call_user_compiler
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     raise BackendCompilerFailed(self.compiler_fn, e) from e
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] torch._dynamo.exc.BackendCompilerFailed: backend='inductor' raised:
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] RuntimeError: Failed to find C compiler. Please specify via CC environment variable.
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] 
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] Set TORCH_LOGS="+dynamo" and TORCHDYNAMO_VERBOSE=1 for more information
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] 
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] 
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] You can suppress this exception and fall back to eager by setting:
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     import torch._dynamo
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     torch._dynamo.config.suppress_errors = True
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] 
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] 
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] During handling of the above exception, another exception occurred:
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] 
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] Traceback (most recent call last):
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/executor/multiproc_worker_utils.py", line 236, in _run_worker_process
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     output = run_method(worker, method, args, kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/utils.py", line 2210, in run_method
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return func(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return func(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/worker/worker.py", line 229, in determine_num_available_blocks
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.model_runner.profile_run()
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return func(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/worker/model_runner.py", line 1264, in profile_run
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self._dummy_run(max_num_batched_tokens, max_num_seqs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/worker/model_runner.py", line 1375, in _dummy_run
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     self.execute_model(model_input, kv_caches, intermediate_tensors)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/usr/local/lib/python3.9/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     return func(*args, **kwargs)
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]   File "/vllm/vllm/vllm/worker/model_runner_base.py", line 154, in _wrapper
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242]     raise type(err)(
+[1;36m(VllmWorkerProcess pid=56605)[0;0m ERROR 04-13 18:44:45 multiproc_worker_utils.py:242] TypeError: __init__() missing 1 required positional argument: 'inner_exception'
+[1;36m(VllmWorkerProcess pid=56605)[0;0m INFO 04-13 18:44:45 multiproc_worker_utils.py:253] Worker exiting
+[1;36m(VllmWorkerProcess pid=56606)[0;0m INFO 04-13 18:44:45 multiproc_worker_utils.py:253] Worker exiting
+[1;36m(VllmWorkerProcess pid=56607)[0;0m INFO 04-13 18:44:45 multiproc_worker_utils.py:253] Worker exiting
+INFO 04-13 18:44:45 multiproc_worker_utils.py:128] Killing local vLLM worker processes

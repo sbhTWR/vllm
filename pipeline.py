@@ -12,6 +12,8 @@ import numpy as np
 from workload import workload0, workload1
 from elasticswap.test_cyclic_workload_v2 import generate_workload
 
+rng = np.random.default_rng(seed=42)
+
 ON_POSIX = 'posix' in sys.builtin_module_names
 
 class AsyncOutputReader:
@@ -201,7 +203,8 @@ def execute_workload(port=8000):
     rate = 0.3
     t = 50
     num_events = int(rate * t)
-    exp_times = np.random.exponential(scale=1/rate, size=num_events)
+    exp_times = rng.exponential(scale=1/rate, size=num_events)
+    
     print(np.cumsum(exp_times))
     arrival_times = list(exp_times)
 
@@ -233,84 +236,84 @@ def execute_workload(port=8000):
 
 def main():
     env = {
-            'CUDA_VISIBLE_DEVICES': '2',
+            'CUDA_VISIBLE_DEVICES': '0,1,2,3',
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
     
-    exp_name = "baselines2"
+    exp_name = "baselines5"
 
     exps = [
-        # { 
-        #     'results_path': "/vllm/vllm/elasticswap/results",
-        #     'exp_name':  exp_name,
-        #     'config_name': "swapall-le",
-        #     'env': env,
-        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-        #     'tp_size': 1, 
-        #     'pp_size': 1, 
-        #     'swap_space': 100,
-        #     'evict_token_thresh': 1000000,
-        #     'evict_token_count': 10000,
-        #     'enable_chunked_prefill': False,
-        #     'fr_policy': "pause_recompute",
-        #     'swap_strategy': "swap_all",
-        #     'block_allocator': "CpuOffloadingBlockAllocator",
-        #     'port': 8000,
-        # },
+        { 
+            'results_path': "/vllm/vllm/elasticswap/results",
+            'exp_name':  exp_name,
+            'config_name': "swapall-le",
+            'env': env,
+            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+            'tp_size': 1, 
+            'pp_size': 1, 
+            'swap_space': 100,
+            'evict_token_thresh': 1000000,
+            'evict_token_count': 10000,
+            'enable_chunked_prefill': False,
+            'fr_policy': "pause_recompute",
+            'swap_strategy': "swap_all",
+            'block_allocator': "CpuOffloadingBlockAllocator",
+            'port': 8000,
+        },
 
-        # { 
-        #     'results_path': "/vllm/vllm/elasticswap/results",
-        #     'exp_name':  exp_name,
-        #     'config_name': "persist-le",
-        #     'env': env,
-        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-        #     'tp_size': 1, 
-        #     'pp_size': 1, 
-        #     'swap_space': 100,
-        #     'evict_token_thresh': 1000000,
-        #     'evict_token_count': 10000,
-        #     'enable_chunked_prefill': False,
-        #     'fr_policy': "pause_recompute",
-        #     'swap_strategy': "persist",
-        #     'block_allocator': "CpuOffloadingBlockAllocator",
-        #     'port': 8000,
-        # },
+        { 
+            'results_path': "/vllm/vllm/elasticswap/results",
+            'exp_name':  exp_name,
+            'config_name': "persist-le",
+            'env': env,
+            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+            'tp_size': 1, 
+            'pp_size': 1, 
+            'swap_space': 100,
+            'evict_token_thresh': 1000000,
+            'evict_token_count': 10000,
+            'enable_chunked_prefill': False,
+            'fr_policy': "pause_recompute",
+            'swap_strategy': "persist",
+            'block_allocator': "CpuOffloadingBlockAllocator",
+            'port': 8000,
+        },
 
-        # { 
-        #     'results_path': "/vllm/vllm/elasticswap/results",
-        #     'exp_name':  exp_name,
-        #     'config_name': "swapall-he",
-        #     'env': env,
-        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-        #     'tp_size': 1, 
-        #     'pp_size': 1, 
-        #     'swap_space': 100,
-        #     'evict_token_thresh': 30000,
-        #     'evict_token_count': 10000,
-        #     'enable_chunked_prefill': False,
-        #     'fr_policy': "pause_recompute",
-        #     'swap_strategy': "swap_all",
-        #     'block_allocator': "CpuOffloadingBlockAllocator",
-        #     'port': 8000,
-        # },
+        { 
+            'results_path': "/vllm/vllm/elasticswap/results",
+            'exp_name':  exp_name,
+            'config_name': "swapall-he",
+            'env': env,
+            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+            'tp_size': 1, 
+            'pp_size': 1, 
+            'swap_space': 100,
+            'evict_token_thresh': 30000,
+            'evict_token_count': 10000,
+            'enable_chunked_prefill': False,
+            'fr_policy': "pause_recompute",
+            'swap_strategy': "swap_all",
+            'block_allocator': "CpuOffloadingBlockAllocator",
+            'port': 8000,
+        },
 
-        # { 
-        #     'results_path': "/vllm/vllm/elasticswap/results",
-        #     'exp_name':  exp_name,
-        #     'config_name': "persist-he",
-        #     'env': env,
-        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-        #     'tp_size': 1, 
-        #     'pp_size': 1, 
-        #     'swap_space': 100,
-        #     'evict_token_thresh': 30000,
-        #     'evict_token_count': 10000,
-        #     'enable_chunked_prefill': False,
-        #     'fr_policy': "pause_recompute",
-        #     'swap_strategy': "persist",
-        #     'block_allocator': "CpuOffloadingBlockAllocator",
-        #     'port': 8000,
-        # },
+        { 
+            'results_path': "/vllm/vllm/elasticswap/results",
+            'exp_name':  exp_name,
+            'config_name': "persist-he",
+            'env': env,
+            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+            'tp_size': 1, 
+            'pp_size': 1, 
+            'swap_space': 100,
+            'evict_token_thresh': 30000,
+            'evict_token_count': 10000,
+            'enable_chunked_prefill': False,
+            'fr_policy': "pause_recompute",
+            'swap_strategy': "persist",
+            'block_allocator': "CpuOffloadingBlockAllocator",
+            'port': 8000,
+        },
 
         { 
             'results_path': "/vllm/vllm/elasticswap/results",
@@ -327,6 +330,61 @@ def main():
             'fr_policy': "pause_recompute",
             'swap_strategy': "swap_all",
             'block_allocator': "CpuGpuBlockAllocator",
+            'port': 8000,
+        },
+
+        { 
+            'results_path': "/vllm/vllm/elasticswap/results",
+            'exp_name':  exp_name,
+            'config_name': "persist_he-pp2",
+            'env': env,
+            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+            'tp_size': 1, 
+            'pp_size': 2, 
+            'swap_space': 100,
+            'evict_token_thresh': 30000,
+            'evict_token_count': 10000,
+            'enable_chunked_prefill': False,
+            'fr_policy': "pause_recompute",
+            'swap_strategy': "persist",
+            'block_allocator': "CpuOffloadingBlockAllocator",
+            'port': 8000,
+        },
+
+        { 
+            'results_path': "/vllm/vllm/elasticswap/results",
+            'exp_name':  exp_name,
+            'config_name': "persist_le-pp2",
+            'env': env,
+            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+            'tp_size': 1, 
+            'pp_size': 2, 
+            'swap_space': 100,
+            'evict_token_thresh': 1000000,
+            'evict_token_count': 10000,
+            'enable_chunked_prefill': False,
+            'fr_policy': "pause_recompute",
+            'swap_strategy': "persist",
+            'block_allocator': "CpuOffloadingBlockAllocator",
+            'port': 8000,
+        },
+
+
+        { 
+            'results_path': "/vllm/vllm/elasticswap/results",
+            'exp_name':  exp_name,
+            'config_name': "persist_le-tp2pp2",
+            'env': env,
+            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+            'tp_size': 2, 
+            'pp_size': 2, 
+            'swap_space': 100,
+            'evict_token_thresh': 1000000,
+            'evict_token_count': 10000,
+            'enable_chunked_prefill': False,
+            'fr_policy': "pause_recompute",
+            'swap_strategy': "persist",
+            'block_allocator': "CpuOffloadingBlockAllocator",
             'port': 8000,
         },
 

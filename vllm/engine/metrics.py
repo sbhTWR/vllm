@@ -585,10 +585,31 @@ class CsvStatLogger(StatLoggerBase):
         self.model_forward_times_requests_acc.extend(stats.model_forward_time_requests)
         self.model_exec_times_requests_acc.extend(stats.model_execute_time_requests)
 
+
         self.swap_times_iter_acc.extend(stats.cache_ops_time_iter)
         self.scheduler_times_iter_acc.extend(stats.scheduler_time_iter)
         self.model_forward_times_iter_acc.extend(stats.model_forward_time_iter)
         self.model_exec_times_iter_acc.extend(stats.model_execute_time_iter)
+
+        # if stats.cache_ops_time_iter:
+        #     self.swap_times_iter_acc.append(sum(stats.cache_ops_time_iter))
+        # else:
+        #     self.swap_times_iter_acc.append(0)
+
+        # if stats.scheduler_time_iter:
+        #     self.scheduler_times_iter_acc.append(sum(stats.scheduler_time_iter))
+        # else:
+        #     self.scheduler_times_iter_acc.append(0)
+
+        # if stats.model_forward_time_iter:
+        #     self.model_forward_times_iter_acc.append(sum(stats.model_forward_time_iter))
+        # else:
+        #     self.model_forward_times_iter_acc.append(0)
+
+        # if stats.model_execute_time_iter:
+        #     self.model_exec_times_iter_acc.append(sum(stats.model_execute_time_iter))
+        # else:
+        #     self.model_exec_times_iter_acc.append(0)
 
         # Log locally every local_interval seconds.
         if local_interval_elapsed(stats.now, self.last_local_log,
