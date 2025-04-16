@@ -241,13 +241,12 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
     
-    exp_name = "baselines7"
-    results_path = "/vllm/vllm/elasticswap/results"
-    abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
+    exp_name = "baselines6"
+    results_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
     copied_script_name = "pipeline.py"
 
-    shutil.copy(__file__, os.path.join(abs_path, copied_script_name)) 
+    shutil.copy(__file__, os.path.join(results_path, copied_script_name)) 
 
     exps = [
         { 

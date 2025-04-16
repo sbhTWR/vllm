@@ -199,9 +199,9 @@ def run_experiment(
 def execute_workload(port=8000):
     threads = []
     request_size = 30000
-    interrupt_len = 20
+    interrupt_len = 5
     num_interrupts = 5
-    rate = 0.30
+    rate = 0.15
     t = 50
     num_events = int(rate * t)
     exp_times = rng.exponential(scale=1/rate, size=num_events)
@@ -241,13 +241,11 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
     
-    exp_name = "baselines7"
+    exp_name = "baselines6"
     results_path = "/vllm/vllm/elasticswap/results"
-    abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
-
     copied_script_name = "pipeline.py"
 
-    shutil.copy(__file__, os.path.join(abs_path, copied_script_name)) 
+    shutil.copy(__file__, results_path + os.sep + copied_script_name) 
 
     exps = [
         { 
