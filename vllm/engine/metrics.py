@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import asdict
 import json
 import time
 import csv
@@ -513,6 +514,8 @@ class CsvStatLogger(StatLoggerBase):
         # self.file_name_config = self.file_name.split(".")[0] + "_config.json"
         self.file_handle = open(self.file_name, 'w')
         self.log_csv = csv.writer(self.file_handle)
+        
+        self.agent_metrics_file_name = self.file_name.split(".")[0] + "_agent_metrics.jsonl"
 
         self.num_prompt_tokens: List[int] = []
         self.num_generation_tokens: List[int] = []
@@ -614,6 +617,15 @@ class CsvStatLogger(StatLoggerBase):
         # Log locally every local_interval seconds.
         if local_interval_elapsed(stats.now, self.last_local_log,
                                   self.local_interval):
+            
+            # dump agent metrics
+            # logger.info("[elasticswap] %s" % stats.retrify_agent_metrics)
+            
+            with open(self.agent_metrics_file_name, 'w') as json_file:
+                for _, v in stats.retrify_agent_metrics.items():
+                    metrics_dict = asdict(v)
+                    json.dump(metrics_dict, json_file, indent=4)
+
             # Compute summary metrics for tracked stats (and log them
             # to promethus if applicable).
             prompt_throughput = get_throughput(self.num_prompt_tokens,

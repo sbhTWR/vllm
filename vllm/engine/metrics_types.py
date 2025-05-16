@@ -14,12 +14,33 @@ do this in Python code and lazily import prometheus_client.
 
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Protocol
 
 from vllm.config import VllmConfig
 from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
 
+@dataclass
+class RetrifyAgentLLMCall:
+    request_id: str 
+    start_t: float = 0.0 
+    end_t: float = 0.0 
+    ttft: float = 0.0
+    tbts: List[float] = field(default_factory=list)
+    swap_t_request: float = 0.0
+    model_exec_t_request: float = 0.0
+    model_forward_t_request: float = 0.0
+    sched_t_request: float = 0.0
+    queue_t_request: float = 0.0
+
+@dataclass
+class RetrifyAgentMetrics:
+    agent_id: str
+    active_llm_calls: int = 0
+    start_t: float = 0.0
+    end_t: float = 0.0
+    finished: bool = False
+    llm_calls: Dict[str, RetrifyAgentLLMCall] = field(default_factory=dict)
 
 @dataclass
 class Stats:
@@ -74,7 +95,11 @@ class Stats:
     running_lora_adapters: List[str]
     max_lora: str
 
+    retrify_agent_metrics: dict[str, RetrifyAgentMetrics]
+
     spec_decode_metrics: Optional["SpecDecodeWorkerMetrics"] = None
+
+    
 
 
 class SupportsMetricsInfo(Protocol):

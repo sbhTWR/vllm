@@ -1053,6 +1053,7 @@ class Scheduler:
             return seq_group
 
         seq_group, fr_policy = self.paused[user_id]
+        assert fr_policy != "default"
         if fr_policy == "pause_recompute":
             seq_group = self.update_seq_group(new_seq_group, seq_group, fr_policy)
             self.requeue_seq_group(seq_group)

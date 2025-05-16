@@ -5,7 +5,7 @@ import time
 from collections import Counter as collectionsCounter
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import (TYPE_CHECKING, Callable, ClassVar, Deque, Dict, Iterable,
                     List, Mapping, NamedTuple, Optional)
@@ -22,7 +22,7 @@ from vllm.config import (DecodingConfig, LoRAConfig, ModelConfig,
 from vllm.core.scheduler import (ScheduledSequenceGroup, Scheduler,
                                  SchedulerOutputs)
 from vllm.engine.arg_utils import EngineArgs
-from vllm.engine.metrics_types import StatLoggerBase, Stats
+from vllm.engine.metrics_types import RetrifyAgentLLMCall, RetrifyAgentMetrics, StatLoggerBase, Stats
 from vllm.engine.output_processor.interfaces import (
     SequenceGroupOutputProcessor)
 from vllm.engine.output_processor.stop_checker import StopChecker
@@ -124,7 +124,6 @@ class SchedulerContext:
                        is_last_step=is_last_step,
                        is_first_step_output=is_first_step_output,
                        skip=[]))
-
 
 
 @dataclass
@@ -434,6 +433,7 @@ class LLMEngine:
             ))
 
         self.seq_id_to_seq_group: Dict[str, SequenceGroupBase] = {}
+        self.active_agents: dict[str, RetrifyAgentMetrics] = {}
 
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
@@ -654,6 +654,34 @@ class LLMEngine:
         user_id = seq_group.user_id
         req_type = seq_group.user_args['type']
         if user_id:
+            
+            if not (user_id in self.active_agents):
+                self.active_agents[user_id] = RetrifyAgentMetrics(
+                    agent_id=user_id,
+                    active_llm_calls=0,
+                    start_t=arrival_time,
+                    end_t=None,
+                )
+            
+            # else:
+            #     assert self.active_agents[user_id].finished == False
+
+        
+            if req_type == 'fin':
+                # add to finished group in agent mwtrics 
+                self.active_agents[user_id].end_t = arrival_time
+                self.active_agents[user_id].finished = True
+                # assert self.active_agents[user_id].active_llm_calls == 0
+            else:
+                self.active_agents[user_id].llm_calls[request_id] =\
+                    RetrifyAgentLLMCall(
+                        request_id=request_id,
+                        start_t=arrival_time,
+                        end_t=None
+                    )
+                
+                self.active_agents[user_id].active_llm_calls += 1
+
             for scheduler in self.scheduler:
                 if user_id in scheduler.paused:
                     finished_seq_group = scheduler.resume_seq_group(seq_group)
@@ -1772,6 +1800,11 @@ class LLMEngine:
                 group_was_prefill = idx < scheduler_outputs.num_prefill_groups
                 seq_group = scheduled_seq_group.seq_group
 
+                
+                assert seq_group.request_id in self.active_agents[seq_group.user_id].llm_calls 
+                agent: RetrifyAgentMetrics = self.active_agents[seq_group.user_id]
+                llmcall: RetrifyAgentLLMCall = agent.llm_calls[seq_group.request_id]
+
                 # NOTE: a seq_group that completed all of its prefill tokens
                 # in the last iteration will have seq_group.is_prefill() = False
                 # with group_was_prefill = True
@@ -1789,10 +1822,13 @@ class LLMEngine:
                         # One generation token per finished prefill.
                         num_generation_tokens_from_prefill_groups += (
                             seq_group.num_seqs())
+
+                        llmcall.ttft = latency
                 else:
                     # TPOTs.
                     latency = seq_group.get_last_token_latency()
                     time_per_output_tokens_iter.append(latency)
+                    llmcall.tbts.append(latency)
                     if seq_group.state.current_step == 0:
                         # For async_output_proc, the do_log_stats()
                         # is called following init_multi_step(), which
@@ -1808,58 +1844,18 @@ class LLMEngine:
                 # the same metadata more than once per request, we standardize
                 # on logging request level information for finished requests,
                 # which can only happen once.
-                # if seq_group.is_finished():
-                #     # Latency timings
-                #     time_e2e_requests.append(now -
-                #                              seq_group.metrics.arrival_time)
-                #     if (seq_group.metrics.first_scheduled_time is not None and
-                #             seq_group.metrics.first_token_time is not None):
-                #         time_queue_requests.append(
-                #             seq_group.metrics.first_scheduled_time -
-                #             seq_group.metrics.arrival_time)
-                #         time_prefill_requests.append(
-                #             seq_group.metrics.first_token_time -
-                #             seq_group.metrics.first_scheduled_time)
-                #         time_decode_requests.append(
-                #             now - seq_group.metrics.first_token_time)
-                #         time_inference_requests.append(
-                #             now - seq_group.metrics.first_scheduled_time)
-                #     if seq_group.metrics.time_in_queue is not None:
-                #         time_in_queue_requests.append(
-                #             seq_group.metrics.time_in_queue)
-                #     if seq_group.metrics.model_forward_time is not None:
-                #         model_forward_time_requests.append(
-                #             seq_group.metrics.model_forward_time)
-                #     if seq_group.metrics.model_execute_time is not None:
-                #         model_execute_time_requests.append(
-                #             seq_group.metrics.model_execute_time * 1000)
-                #     if seq_group.metrics.cache_ops_time is not None:
-                #         cache_ops_time_requests.append(
-                #             seq_group.metrics.cache_ops_time * 1000)
-                #     # Metadata
-                #     num_prompt_tokens_requests.append(
-                #         len(seq_group.prompt_token_ids))
-                #     num_generation_tokens_requests.extend([
-                #         seq.get_output_len()
-                #         for seq in seq_group.get_finished_seqs()
-                #     ])
-                #     max_num_generation_tokens_requests.append(
-                #         max(seq.get_output_len()
-                #             for seq in seq_group.get_seqs()))
-                #     if seq_group.sampling_params is not None:
-                #         n_requests.append(seq_group.sampling_params.n)
-                #         max_tokens_requests.append(
-                #             seq_group.sampling_params.max_tokens)
-                #     finished_reason_requests.extend([
-                #         SequenceStatus.get_finished_reason(seq.status)
-                #         for seq in seq_group.get_finished_seqs()
-                #     ])
-            
-
-            for seq_group in self.retrify_finished_seq_groups:
-
                 if seq_group.is_finished():
-                    logger.info("[elasticswap>>>>>>>>>>] logging for seq_id=%d" % seq_group.first_seq.seq_id)
+                    # add to retrify agent metrics
+
+                    llmcall.end_t = now
+                    llmcall.swap_t_request = seq_group.metrics.cache_ops_time * 1000
+                    llmcall.queue_t_request = seq_group.metrics.time_in_queue
+                    llmcall.model_forward_t_request = seq_group.metrics.model_forward_time
+                    llmcall.model_exec_t_request = seq_group.metrics.model_execute_time * 1000
+
+                    assert agent.active_llm_calls > 0
+                    agent.active_llm_calls -= 1
+
                     # Latency timings
                     time_e2e_requests.append(now -
                                              seq_group.metrics.arrival_time)
@@ -1875,13 +1871,9 @@ class LLMEngine:
                             now - seq_group.metrics.first_token_time)
                         time_inference_requests.append(
                             now - seq_group.metrics.first_scheduled_time)
-                    
-                    logger.info('[<<<log>>>] seq_group.metrics.cache_ops_time=%f' % seq_group.metrics.cache_ops_time)
-                    logger.info('[<<<log>>>] seq_group.metrics.model_forward_time=%f' % seq_group.metrics.model_forward_time)
-
                     if seq_group.metrics.time_in_queue is not None:
                         time_in_queue_requests.append(
-                            seq_group.metrics.time_in_queue * 1000)
+                            seq_group.metrics.time_in_queue)
                     if seq_group.metrics.model_forward_time is not None:
                         model_forward_time_requests.append(
                             seq_group.metrics.model_forward_time)
@@ -1891,11 +1883,6 @@ class LLMEngine:
                     if seq_group.metrics.cache_ops_time is not None:
                         cache_ops_time_requests.append(
                             seq_group.metrics.cache_ops_time * 1000)
-                    
-                    if seq_group.metrics.scheduler_time is not None:
-                        scheduler_time_requests.append(
-                            seq_group.metrics.scheduler_time
-                        )
                     # Metadata
                     num_prompt_tokens_requests.append(
                         len(seq_group.prompt_token_ids))
@@ -1915,7 +1902,67 @@ class LLMEngine:
                         for seq in seq_group.get_finished_seqs()
                     ])
             
-            self.retrify_finished_seq_groups = []
+
+            # for seq_group in self.retrify_finished_seq_groups:
+
+            #     if seq_group.is_finished():
+            #         logger.info("[elasticswap>>>>>>>>>>] logging for seq_id=%d" % seq_group.first_seq.seq_id)
+            #         # Latency timings
+            #         time_e2e_requests.append(now -
+            #                                  seq_group.metrics.arrival_time)
+            #         if (seq_group.metrics.first_scheduled_time is not None and
+            #                 seq_group.metrics.first_token_time is not None):
+            #             time_queue_requests.append(
+            #                 seq_group.metrics.first_scheduled_time -
+            #                 seq_group.metrics.arrival_time)
+            #             time_prefill_requests.append(
+            #                 seq_group.metrics.first_token_time -
+            #                 seq_group.metrics.first_scheduled_time)
+            #             time_decode_requests.append(
+            #                 now - seq_group.metrics.first_token_time)
+            #             time_inference_requests.append(
+            #                 now - seq_group.metrics.first_scheduled_time)
+                    
+            #         logger.info('[<<<log>>>] seq_group.metrics.cache_ops_time=%f' % seq_group.metrics.cache_ops_time)
+            #         logger.info('[<<<log>>>] seq_group.metrics.model_forward_time=%f' % seq_group.metrics.model_forward_time)
+
+            #         if seq_group.metrics.time_in_queue is not None:
+            #             time_in_queue_requests.append(
+            #                 seq_group.metrics.time_in_queue * 1000)
+            #         if seq_group.metrics.model_forward_time is not None:
+            #             model_forward_time_requests.append(
+            #                 seq_group.metrics.model_forward_time)
+            #         if seq_group.metrics.model_execute_time is not None:
+            #             model_execute_time_requests.append(
+            #                 seq_group.metrics.model_execute_time * 1000)
+            #         if seq_group.metrics.cache_ops_time is not None:
+            #             cache_ops_time_requests.append(
+            #                 seq_group.metrics.cache_ops_time * 1000)
+                    
+            #         if seq_group.metrics.scheduler_time is not None:
+            #             scheduler_time_requests.append(
+            #                 seq_group.metrics.scheduler_time
+            #             )
+            #         # Metadata
+            #         num_prompt_tokens_requests.append(
+            #             len(seq_group.prompt_token_ids))
+            #         num_generation_tokens_requests.extend([
+            #             seq.get_output_len()
+            #             for seq in seq_group.get_finished_seqs()
+            #         ])
+            #         max_num_generation_tokens_requests.append(
+            #             max(seq.get_output_len()
+            #                 for seq in seq_group.get_seqs()))
+            #         if seq_group.sampling_params is not None:
+            #             n_requests.append(seq_group.sampling_params.n)
+            #             max_tokens_requests.append(
+            #                 seq_group.sampling_params.max_tokens)
+            #         finished_reason_requests.extend([
+            #             SequenceStatus.get_finished_reason(seq.status)
+            #             for seq in seq_group.get_finished_seqs()
+            #         ])
+            
+            # self.retrify_finished_seq_groups = []
 
             # Number of generation tokens.
             #   num_batched_tokens equals the number of prompt_tokens plus the
@@ -2006,7 +2053,9 @@ class LLMEngine:
             finished_reason_requests=finished_reason_requests,
             max_lora=str(max_lora_stat),
             waiting_lora_adapters=list(waiting_lora_adapters.keys()),
-            running_lora_adapters=list(running_lora_adapters.keys()))
+            running_lora_adapters=list(running_lora_adapters.keys()),
+            retrify_agent_metrics=self.active_agents,
+            )
 
     def add_lora(self, lora_request: LoRARequest) -> bool:
         return self.model_executor.add_lora(lora_request)
