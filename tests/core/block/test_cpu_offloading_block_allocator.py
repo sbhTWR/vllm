@@ -49,7 +49,7 @@ def test_allocate_mutable_block(num_cpu_blocks: int, num_gpu_blocks: int,
 @pytest.mark.parametrize("num_gpu_blocks", [256])
 @pytest.mark.parametrize("block_size", [2])
 @pytest.mark.parametrize("allocator_type", ["prefix_caching"])
-@pytest.mark.parametrize("swap_strategy", [SwapStrategy.SWAP_ALL])
+@pytest.mark.parametrize("swap_strategy", [SwapStrategy.SWAP_LRU])
 def test_swap_all(num_cpu_blocks: int, num_gpu_blocks: int,
                                   block_size: int, allocator_type: str,
                                   swap_strategy: SwapStrategy):

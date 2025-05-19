@@ -391,6 +391,11 @@ class SequenceData(msgspec.Struct,
                 f"cumulative_logprob={self.cumulative_logprob}, "
                 f"get_num_computed_tokens={self.get_num_computed_tokens()}")
 
+@dataclass
+class SequenceGroupHints:
+    # kv cache hints
+    kv_reuse_expected_duration_s: float = None 
+
 
 class Sequence:
     """Stores the data, status, and block information of a sequence.
@@ -696,8 +701,11 @@ class SequenceGroup:
         self.cached_request_output = None
         self.user_args = user_args
         self.user_id = None
+        self.hints: SequenceGroupHints = None
         if user_args:
             self.user_id = user_args['id']
+            if 'hints' in user_args:
+                self.hints = SequenceGroupHints(**user_args['hints'])
         
         self._returning = False
 

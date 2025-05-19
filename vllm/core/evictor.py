@@ -14,8 +14,9 @@ class EvictionPolicy(enum.Enum):
 
 
 class SwapStrategy(enum.Enum):
-    SWAP_ALL = enum.auto()
+    SWAP_LRU = enum.auto()
     PERSIST = enum.auto()
+    SWAP_HINTS = enum.auto()
 
 class Evictor(ABC):
     """The Evictor subclasses should be used by the BlockAllocator class to
@@ -68,14 +69,17 @@ class BlockMetaData:
     """
 
     def __init__(self, content_hash: int, num_hashed_tokens: int,
-                 last_accessed: float):
+                 last_accessed: float, reuse_expected_time_s: float = None,
+                 last_accessed_by_user: str = None):
         self.content_hash = content_hash
         self.num_hashed_tokens = num_hashed_tokens
         self.last_accessed = last_accessed
+        self.reuse_expected_time_s = reuse_expected_time_s
+        self.last_accessed_by_user = last_accessed_by_user
 
 
 class FreeBlockSwapScheduler:
-    def __init__(self, swap_strategy = SwapStrategy.SWAP_ALL):
+    def __init__(self, swap_strategy = SwapStrategy.SWAP_LRU):
         self.free_table: Dict[int, BlockMetaData] = {}
         self.priority_queue = []
         self.swap_strategy = swap_strategy
@@ -83,11 +87,10 @@ class FreeBlockSwapScheduler:
     def __contains__(self, block_id: int) -> bool:
         return block_id in self.free_table
 
-    def evict_n(self, n) -> List[int]:
-        evicted_block_ids = []
 
+    def evict(self) -> Tuple[int, BlockMetaData]:
         if len(self.free_table) == 0:
-            return []
+            raise ValueError("No usable cache memory left")
 
         while self.priority_queue:
             # We do not remove outdated entries from the priority queue at the
@@ -96,29 +99,86 @@ class FreeBlockSwapScheduler:
             # would either not in the free table, or have older last accessed
             # time.
 
-            if len(evicted_block_ids) >= n:
-                break
+            # add to heap depending upon the strategy
+            if self.swap_strategy == SwapStrategy.PERSIST or\
+            self.swap_strategy == SwapStrategy.SWAP_LRU:
+                last_accessed, _, block_id, content_hash = heapq.heappop(
+                    self.priority_queue)
+                if (block_id in self.free_table and
+                        self.free_table[block_id].last_accessed == last_accessed):
+                    
+                    block_metadata = self.free_table[block_id]
+                    self.free_table.pop(block_id)
+                    return block_id, block_metadata
+                
+            elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
+                reuse_expected_time, last_accessed, _, block_id, content_hash = heapq.heappop(
+                    self.priority_queue)
+                if (block_id in self.free_table and
+                        self.free_table[block_id].last_accessed == last_accessed):
+                    block_metadata = self.free_table[block_id]
+                    self.free_table.pop(block_id)
+                    return block_id, block_metadata
+                
 
-            last_accessed, _, block_id, content_hash = heapq.heappop(
-                self.priority_queue)
+        raise ValueError("No usable cache memory left")
+
+    # def evict_n(self, n) -> List[int]:
+    #     evicted_block_ids = []
+
+    #     if len(self.free_table) == 0:
+    #         return []
+
+    #     while self.priority_queue:
+    #         # We do not remove outdated entries from the priority queue at the
+    #         # time of updating the last_accessed timestamp. Instead, outdated
+    #         # entries are filtered out here during eviction. Outdated entries
+    #         # would either not in the free table, or have older last accessed
+    #         # time.
+
+    #         if len(evicted_block_ids) >= n:
+    #             break
+
+    #         last_accessed, _, block_id, content_hash = heapq.heappop(
+    #             self.priority_queue)
             
-            if (block_id in self.free_table and
-                    self.free_table[block_id].last_accessed == last_accessed):
-                self.free_table.pop(block_id)
-                evicted_block_ids.append((block_id, content_hash))
+    #         if (block_id in self.free_table and
+    #                 self.free_table[block_id].last_accessed == last_accessed):
+    #             self.free_table.pop(block_id)
+    #             evicted_block_ids.append((block_id, content_hash))
         
-        return evicted_block_ids
+    #     return evicted_block_ids
 
     def add(self, block_id: int, content_hash: int, num_hashed_tokens: int,
-            last_accessed: float):
+            last_accessed: float, reuse_expected_time_s: float = None, 
+            last_accessed_by_user: str = None):
         self.free_table[block_id] = BlockMetaData(content_hash,
                                                   num_hashed_tokens,
-                                                  last_accessed)
+                                                  last_accessed, 
+                                                  reuse_expected_time_s,
+                                                  last_accessed_by_user)
 
-        heapq.heappush(
-            self.priority_queue,
-            (last_accessed, -num_hashed_tokens, block_id, content_hash))
-        self._cleanup_if_necessary()
+        # add to heap depending upon the strategy
+        if self.swap_strategy == SwapStrategy.PERSIST or\
+        self.swap_strategy == SwapStrategy.SWAP_LRU:
+
+            # use an LRU policy 
+            heapq.heappush(
+                self.priority_queue,
+                (last_accessed, -num_hashed_tokens, block_id, content_hash))
+            self._cleanup_if_necessary()
+        
+        elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
+            # use hint based scoring 
+            
+            # 1. add reuse hint 
+            reuse_expected_time = last_accessed + reuse_expected_time_s
+            heapq.heappush(
+                self.priority_queue,
+                (-reuse_expected_time, last_accessed, -num_hashed_tokens, block_id, content_hash))
+            self._cleanup_if_necessary()
+
+
 
     def _cleanup_if_necessary(self):
         if len(self.priority_queue) > LRUEvictor.CLEANUP_THRESHOLD * len(
@@ -129,9 +189,21 @@ class FreeBlockSwapScheduler:
         new_priority_queue: List[Tuple[float, int, int, int]] = []
 
         for block_id, block in self.free_table.items():
-            new_priority_queue.append(
-                (block.last_accessed, -block.num_hashed_tokens, block_id,
-                 block.content_hash))
+
+            # add to heap depending upon the strategy
+            if self.swap_strategy == SwapStrategy.PERSIST or\
+            self.swap_strategy == SwapStrategy.SWAP_LRU:
+                new_priority_queue.append(
+                    (block.last_accessed, -block.num_hashed_tokens, block_id,
+                    block.content_hash))
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
+                reuse_expected_time_s = block.reuse_expected_time_s
+                reuse_expected_time = block.last_accessed + reuse_expected_time_s
+                new_priority_queue.append(
+                    (-reuse_expected_time, block.last_accessed, -block.num_hashed_tokens, block_id,
+                    block.content_hash))
+
         heapq.heapify(new_priority_queue)
 
         self.priority_queue = new_priority_queue
@@ -146,14 +218,20 @@ class FreeBlockSwapScheduler:
         self.free_table.pop(block_id)
 
     def get_and_reset_swap_blocks(self):
-        if self.swap_strategy == SwapStrategy.SWAP_ALL:
-            block_list= [(block_id, block) for block_id, block in self.free_table.items()]
-            self.free_table = {}
-            return block_list
-        elif self.swap_strategy == SwapStrategy.PERSIST:
-            return []
-        else:
-            raise ValueError("invalid swap strategy")
+        # if self.swap_strategy == SwapStrategy.SWAP_LRU:
+        #     block_list= [(block_id, block) for block_id, block in self.free_table.items()]
+        #     self.free_table = {}
+        #     return block_list
+        # elif self.swap_strategy == SwapStrategy.PERSIST:
+        #     return []
+        # else:
+        #     raise ValueError("invalid swap strategy")
+
+        """
+        Removing this implementation in the favor of on-demand eviction 
+        strategy.
+        """
+        return []
 
     
     @property

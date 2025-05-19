@@ -29,11 +29,13 @@ logger = init_logger(__name__)
 class BlockTracker:
     """Used to track the status of a block inside the prefix caching allocator
     """
-    __slots__ = ("active", "last_accessed", "computed")
+    __slots__ = ("active", "last_accessed", "computed", "reuse_expected_time_s", "last_accessed_by_user")
 
     def reset(self):
         self.last_accessed: float = _DEFAULT_LAST_ACCESSED_TIME
         self.computed: bool = False
+        self.reuse_expected_time_s: float = None
+        self.last_accessed_by_user: str = None
 
     def __init__(self):
         self.active: bool = False
@@ -742,7 +744,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         block_size: int,
         block_ids: Optional[Iterable[int]] = None,
         eviction_policy: EvictionPolicy = EvictionPolicy.LRU,
-        swap_strategy: SwapStrategy = SwapStrategy.SWAP_ALL,
+        swap_strategy: SwapStrategy = SwapStrategy.SWAP_LRU,
     ):
         if block_ids is None:
             block_ids = range(num_blocks)
@@ -890,10 +892,12 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         self.metric_data.query(hit=False)
         self._block_pool.free_block(block)
 
-        # No cached block => Allocate a new block
-        block = self.allocate_mutable_block(prev_block, extra_hash=extra_hash)
-        block.append_token_ids(token_ids)
-        return block
+        return None
+
+        # # No cached block => Allocate a new block
+        # block = self.allocate_mutable_block(prev_block, extra_hash=extra_hash)
+        # block.append_token_ids(token_ids)
+        # return block
 
     def allocate_immutable_blocks(
             self,
@@ -1007,7 +1011,9 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         # Add the cached block to the evictor
         # (This keeps the cached block around so it can be reused)
         self.swap_scheduler.add(block_id, block.content_hash, block.num_tokens_total,
-                         self._block_tracker[block_id].last_accessed)
+                         self._block_tracker[block_id].last_accessed, 
+                         self._block_tracker[block_id].reuse_expected_time_s,
+                         self._block_tracker[block_id].last_accessed_by_user)
 
         # Stop tracking the block
         self._untrack_block_id(block_id)
@@ -1133,7 +1139,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         # The number of free blocks is the number of hashless free blocks
         # plus the number of blocks evictor could free from its list.
         return self._hashless_allocator.get_num_free_blocks(
-        ) + 0
+        ) + self.swap_scheduler.num_blocks
 
     def get_num_total_blocks(self) -> int:
         return self._hashless_allocator.get_num_total_blocks()

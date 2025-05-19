@@ -1129,8 +1129,10 @@ class CacheConfig:
 
         if self.swap_strategy == "persist":
             self.swap_strategy = SwapStrategy.PERSIST
-        elif self.swap_strategy == "swap_all":
-            self.swap_strategy = SwapStrategy.SWAP_ALL
+        elif self.swap_strategy == "swap_lru":
+            self.swap_strategy = SwapStrategy.SWAP_LRU
+        elif self.swap_strategy == "swap_hints":
+            self.swap_strategy = SwapStrategy.SWAP_HINTS
 
     def _verify_cache_dtype(self) -> None:
         if self.cache_dtype == "auto":

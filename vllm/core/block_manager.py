@@ -28,6 +28,20 @@ block_allocator_creator = {
     "CpuOffloadingBlockAllocator": CpuOffloadingBlockAllocator.create,
 }
 
+class AllocationContextManager:
+    def __init__(self, block_allocator, seq_group: SequenceGroup):
+        
+        self.block_allocator = block_allocator
+        self.seq_group = seq_group 
+        
+    def __enter__(self):
+        if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
+            self.block_allocator.allocation_ctx.set_context(self.seq_group)
+    
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
+            self.block_allocator.allocation_ctx.unset_context()
+
 class SelfAttnBlockSpaceManager(BlockSpaceManager):
     """BlockSpaceManager which manages the allocation of KV cache.
 
@@ -77,7 +91,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         sliding_window: Optional[int] = None,
         enable_caching: bool = False,
         block_allocator: str = "CpuGpuBlockAllocator",
-        swap_strategy: SwapStrategy = SwapStrategy.SWAP_ALL,
+        swap_strategy: SwapStrategy = SwapStrategy.SWAP_LRU,
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
@@ -217,67 +231,69 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         return block_table
 
     def allocate(self, seq_group: SequenceGroup) -> None:
+        
+        with AllocationContextManager(self.block_allocator, seq_group):
 
-        logger.info("[elasticswap] block_table keys = %s seq_id=%d" % 
-                    (self.block_tables.keys(), seq_group.first_seq.seq_id))
-        # Allocate self-attention block tables for decoder sequences
-        waiting_seqs = seq_group.get_seqs(status=SequenceStatus.WAITING)
-        # assert not (set(seq.seq_id for seq in waiting_seqs)
-        #             & self.block_tables.keys()), "block table already exists"
+            logger.info("[elasticswap] block_table keys = %s seq_id=%d" % 
+                        (self.block_tables.keys(), seq_group.first_seq.seq_id))
+            # Allocate self-attention block tables for decoder sequences
+            waiting_seqs = seq_group.get_seqs(status=SequenceStatus.WAITING)
+            # assert not (set(seq.seq_id for seq in waiting_seqs)
+            #             & self.block_tables.keys()), "block table already exists"
 
-        if (set(seq.seq_id for seq in waiting_seqs)
-                    & self.block_tables.keys()):
-            
-            # append_slots
-            for seq in waiting_seqs:
-                block_table = self.block_tables[seq.seq_id]
-                num_token_ids = len(block_table.get_unseen_token_ids(seq.get_token_ids()))
-                num_computed_slots = seq.data.get_num_computed_tokens()
+            if (set(seq.seq_id for seq in waiting_seqs)
+                        & self.block_tables.keys()):
                 
-                logger.info("[elasticswap] num_unseen_token_ids=%d num_computed_tokens=%d " 
-                                % (num_token_ids, num_computed_slots))
-                cows = self.append_slots(seq, 0)
+                # append_slots
+                for seq in waiting_seqs:
+                    block_table = self.block_tables[seq.seq_id]
+                    num_token_ids = len(block_table.get_unseen_token_ids(seq.get_token_ids()))
+                    num_computed_slots = seq.data.get_num_computed_tokens()
+                    
+                    logger.info("[elasticswap] num_unseen_token_ids=%d num_computed_tokens=%d " 
+                                    % (num_token_ids, num_computed_slots))
+                    cows = self.append_slots(seq, 0)
 
-                block_table = self.block_tables[seq.seq_id]
-                num_blocks = len(block_table.blocks)
-                logger.info("[elasticswap] seq_id=%d num_blocks=%d" % (seq.seq_id, num_blocks))
-                logger.info("[elasticswap] blocks=%s" % block_table.physical_block_ids)
-                logger.info('[elasticswap] cows=%s' % cows)
-            return 
+                    block_table = self.block_tables[seq.seq_id]
+                    num_blocks = len(block_table.blocks)
+                    logger.info("[elasticswap] seq_id=%d num_blocks=%d" % (seq.seq_id, num_blocks))
+                    logger.info("[elasticswap] blocks=%s" % block_table.physical_block_ids)
+                    logger.info('[elasticswap] cows=%s' % cows)
+                return 
 
-        # NOTE: Here we assume that all sequences in the group have the same
-        # prompt.
-        seq = waiting_seqs[0]
-        block_table: BlockTable = self._allocate_sequence(seq)
-        self.block_tables[seq.seq_id] = block_table
-
-        # Track seq
-        self._last_access_blocks_tracker.add_seq(seq.seq_id)
-
-        # Assign the block table for each sequence.
-        for seq in waiting_seqs[1:]:
-            self.block_tables[seq.seq_id] = block_table.fork()
+            # NOTE: Here we assume that all sequences in the group have the same
+            # prompt.
+            seq = waiting_seqs[0]
+            block_table: BlockTable = self._allocate_sequence(seq)
+            self.block_tables[seq.seq_id] = block_table
 
             # Track seq
             self._last_access_blocks_tracker.add_seq(seq.seq_id)
 
-        # Allocate cross-attention block table for encoder sequence
-        #
-        # NOTE: Here we assume that all sequences in the group have the same
-        # encoder prompt.
-        request_id = seq_group.request_id
+            # Assign the block table for each sequence.
+            for seq in waiting_seqs[1:]:
+                self.block_tables[seq.seq_id] = block_table.fork()
 
-        assert (request_id
-                not in self.cross_block_tables), \
-            "block table already exists"
+                # Track seq
+                self._last_access_blocks_tracker.add_seq(seq.seq_id)
 
-        check_no_caching_or_swa_for_blockmgr_encdec(self, seq_group)
+            # Allocate cross-attention block table for encoder sequence
+            #
+            # NOTE: Here we assume that all sequences in the group have the same
+            # encoder prompt.
+            request_id = seq_group.request_id
 
-        if seq_group.is_encoder_decoder():
-            encoder_seq = seq_group.get_encoder_seq()
-            assert encoder_seq is not None
-            block_table = self._allocate_sequence(encoder_seq)
-            self.cross_block_tables[request_id] = block_table
+            assert (request_id
+                    not in self.cross_block_tables), \
+                "block table already exists"
+
+            check_no_caching_or_swa_for_blockmgr_encdec(self, seq_group)
+
+            if seq_group.is_encoder_decoder():
+                encoder_seq = seq_group.get_encoder_seq()
+                assert encoder_seq is not None
+                block_table = self._allocate_sequence(encoder_seq)
+                self.cross_block_tables[request_id] = block_table
 
     def can_append_slots(self, seq_group: SequenceGroup,
                          num_lookahead_slots: int) -> bool:
