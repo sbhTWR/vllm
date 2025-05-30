@@ -221,14 +221,14 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             if num_evicted >= n:
                 break
 
-            for block_id, block in self._cached_blocks_cpu.items():
-                if self.swap_strategy == SwapStrategy.PERSIST or\
-                    self.swap_strategy == SwapStrategy.SWAP_LRU:
-                    last_accessed, _, block_id, content_hash = heapq.heappop(
-                        self.priority_queue)
-                elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
-                        _, last_accessed, _, block_id, content_hash = heapq.heappop(
-                        self.priority_queue)
+            # for block_id, block in self._cached_blocks_cpu.items():
+            if self.swap_strategy == SwapStrategy.PERSIST or\
+                self.swap_strategy == SwapStrategy.SWAP_LRU:
+                last_accessed, _, block_id, content_hash = heapq.heappop(
+                    self.priority_queue)
+            elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
+                    _, last_accessed, _, block_id, content_hash = heapq.heappop(
+                    self.priority_queue)
 
             if (block_id in self._cached_blocks_cpu and 
                 last_accessed == self._cached_blocks_cpu[block_id].last_accessed):
@@ -282,7 +282,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
     def allocate_mutable_block_gpu_with_heirarchical_cache(self,
                                prev_block: Optional[Block],
                                device: Device,
-                               extra_hash: Optional[int] = None) -> Block:
+                               extra_hash: Optional[int] = None,
+                               return_block_id = False) -> Block:
 
         assert device == Device.GPU, "Calls to CPU offloading block allocator "\
             "should always use Device.GPU --- CPU offloading block allocator "\
@@ -295,6 +296,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         assert_prefix_caching_block_or_none(prev_block)
         hashless_block_id = gpu_allocator._maybe_allocate_hashless_block_id()
         if hashless_block_id is not None:
+            if return_block_id:
+                return hashless_block_id
             block = gpu_allocator._block_pool.init_block(prev_block=prev_block,
                                             token_ids=[],
                                             block_size=gpu_allocator._block_size,
@@ -346,11 +349,15 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 cpu_block_id,
                 block_metadata.content_hash,
                 now,
-                block_metadata
+                block_metadata,
+                untrack_old=False
             )
 
         # schedule swap
         self._swap_mapping[gpu_block_id] = cpu_block_id
+
+        if return_block_id:
+            return gpu_block_id
 
         # allocate a block object 
         block = gpu_allocator._block_pool.init_block(prev_block=prev_block,
@@ -453,10 +460,20 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             assert content_hash is not None
             if not self._is_gpu_block_unsafe(_block_id_tmp):
 
+                # TODO: do we need to lock the cpu block?
+
                 replacement_was_needed = True
                 # allocate a gpu block 
-                gpu_block_id_replacement = self._allocators[device]._allocate_block_id() 
+                # gpu_block_id_replacement = self._allocators[device]._allocate_block_id() 
+                gpu_block_id_replacement = self.allocate_mutable_block_gpu_with_heirarchical_cache(
+                    prev_block=None,
+                    device=device,
+                    extra_hash=None,
+                    return_block_id=True
+                )
                 # and replace the mapping
+
+                # print('[allocate_immutable] cpu (%d) -> gpu (%d)' % (_block_id_tmp, gpu_block_id_replacement))
 
                 # decrement the reference count since it will be incremented 
                 # in immutable allocation 
@@ -497,7 +514,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         block_tracker_obj.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
         block_tracker_obj.last_accessed_by_user = self.allocation_ctx.seq_group.user_id
 
-        print('block_id (%d) -> %s' % (block_id, self.allocation_ctx.seq_group.user_id))
+        # print('block_id (%d) -> %s' % (block_id, self.allocation_ctx.seq_group.user_id))
 
         # deal with prefix caching, three cases in total:
         # 1. cache hit on GPU
@@ -587,7 +604,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             return block_id - self.num_gpu_blocks
 
     def replace_block_ids_in_cached_allocator(
-            self, old_block_id, new_block_id, hash_value, now, block_metadata=None):
+            self, old_block_id, new_block_id, hash_value, now, block_metadata=None, 
+            untrack_old=True):
         gpu_allocator = self._allocators[Device.GPU]
 
         # replace in hash map 
@@ -609,8 +627,9 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         
         new_block_tracker_obj = BlockTracker()
         new_block_tracker_obj.computed = True
-        new_block_tracker_obj.active = old_block_tracker_obj.active
-        
+        new_block_tracker_obj.active = False
+        # print("new block_id active %s" % new_block_tracker_obj.active)
+
         if block_metadata:
             new_block_tracker_obj.last_accessed_by_user = block_metadata.last_accessed_by_user
             new_block_tracker_obj.reuse_expected_time_s = block_metadata.reuse_expected_time_s
@@ -627,7 +646,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         block_tracker[new_block_id] = new_block_tracker_obj
         # print(old_block_id)
-        if old_block_tracker_obj.active:
+        if old_block_tracker_obj.active and untrack_old:
             block_tracker[old_block_id].disable()
         
         if self._is_gpu_block_unsafe(old_block_id):
