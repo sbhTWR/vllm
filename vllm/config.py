@@ -1075,7 +1075,7 @@ class CacheConfig:
         cpu_offload_gb: float = 0,
         calculate_kv_scales: Optional[bool] = None,
         block_allocator: str = "CpuGpuBlockAllocator",
-        swap_strategy: str = "swap_all",
+        swap_strategy: str = "swap-lru",
     ) -> None:
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -1120,7 +1120,7 @@ class CacheConfig:
                 f"supported. Got {self.block_allocator}.")
 
         if self.swap_strategy not in [
-                "persist", "swap_all"
+                "persist", "swap-lru", "swap-hints"
         ]:
             raise ValueError(
                 "Only persist and swap_all is "
@@ -1129,9 +1129,9 @@ class CacheConfig:
 
         if self.swap_strategy == "persist":
             self.swap_strategy = SwapStrategy.PERSIST
-        elif self.swap_strategy == "swap_lru":
+        elif self.swap_strategy == "swap-lru":
             self.swap_strategy = SwapStrategy.SWAP_LRU
-        elif self.swap_strategy == "swap_hints":
+        elif self.swap_strategy == "swap-hints":
             self.swap_strategy = SwapStrategy.SWAP_HINTS
 
     def _verify_cache_dtype(self) -> None:

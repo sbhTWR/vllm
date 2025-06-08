@@ -367,12 +367,36 @@ def test_swap_hints(num_cpu_blocks: int, num_gpu_blocks: int,
     # what was evicted? 
     # get a list of all agents currently in the system
 
-    # how? 
+
+    # for all blocks in GPU (swap scheduler + mutable), create a set of agents existing 
+    # this would include CPU blcoks. 
+
+    # swap_scheduler = allocator._allocators[Device.GPU].swap_scheduler
+    # swap_scheduler.free 
+
+    # iterate all blocks 
+    # Cached blocks 
+
+    cached_blocks_list = []
+
+    user_names = set()
+    cached_blocks = allocator._allocators[Device.GPU]._cached_blocks
+    for _, block_id in cached_blocks.items():
+        cached_blocks_list.append(block_id)
+
+    # this is a map 
+    block_tracker = allocator._allocators[Device.GPU]._block_tracker
+    for block_id, block_metadata in block_tracker.items():
+        if block_id in cached_blocks_list:
+            user = block_metadata.last_accessed_by_user
+            user_names.add(user)
     
-    # iterate over all the blocks in cpu, gpu, and swap evictor to know 
-    # what was evicted.
+    print(user_names)
+    
 
     
+
+
 
 
 

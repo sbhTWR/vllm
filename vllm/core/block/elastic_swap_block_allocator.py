@@ -241,9 +241,10 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 gpu_allocator._cached_blocks.pop(content_hash)
                 # remove from block tracker 
                 if block_id in block_tracker:
+                    block_metadata = block_tracker[block_id]
+                    # print('evicting %s' % block_metadata.last_accessed_by_user)
                     block_tracker.pop(block_id)
-
-                self._allocators[Device.CPU]._free_block_id(block_id) 
+                self._allocators[Device.CPU]._free_block_id(block_id)
 
                 # free the block 
                 num_evicted += 1
@@ -273,11 +274,21 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         #     prev_block, extra_hash=extra_hash)
         # return block
 
-        return self.allocate_mutable_block_gpu_with_heirarchical_cache(
+        block = self.allocate_mutable_block_gpu_with_heirarchical_cache(
             prev_block=prev_block,
             device=device,
             extra_hash=extra_hash
         )
+
+        # get allocation context to see if hints are there 
+        if self.swap_strategy == SwapStrategy.SWAP_HINTS:
+            hints = self.allocation_ctx.seq_group.hints
+            assert hints is not None, "hints must be provided with SWAP_HINTS"
+            block.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
+        
+        block.last_accessed_by_user = self.allocation_ctx.seq_group.user_id
+
+        return block
     
     def allocate_mutable_block_gpu_with_heirarchical_cache(self,
                                prev_block: Optional[Block],
@@ -511,7 +522,11 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         # update hints 
         hints = self.allocation_ctx.seq_group.hints
         block_tracker_obj = self._allocators[device]._block_tracker[block_id]
-        block_tracker_obj.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
+        if self.swap_strategy == SwapStrategy.SWAP_HINTS:
+            assert hints is not None, "hints must be initialized when using SWAP_HINTS"
+            block_tracker_obj.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
+            logger.info("[elasticswap] block_id=%d hint<kv_reuse_expected_duration_s>=%f" %
+                         (block_id, block_tracker_obj.reuse_expected_time_s))
         block_tracker_obj.last_accessed_by_user = self.allocation_ctx.seq_group.user_id
 
         # print('block_id (%d) -> %s' % (block_id, self.allocation_ctx.seq_group.user_id))

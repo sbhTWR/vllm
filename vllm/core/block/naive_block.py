@@ -435,6 +435,23 @@ class NaiveBlock(Block):
     def last_accessed(self, last_accessed_ts: float):
         raise NotImplementedError
 
+
+    @property
+    def reuse_expected_time_s(self) -> float:
+        raise NotImplementedError
+
+    @reuse_expected_time_s.setter
+    def reuse_expected_time_s(self, reuse_expected_time_s: float):
+        raise NotImplementedError
+    
+    @property
+    def last_accessed_by_user(self) -> str:
+        raise NotImplementedError
+
+    @last_accessed_by_user.setter
+    def last_accessed_by_user(self, last_accessed_by_user: str):
+        raise NotImplementedError
+
     @property
     def block_id(self) -> Optional[int]:
         return self._block_id

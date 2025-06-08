@@ -78,6 +78,26 @@ class Block(ABC):
     def last_accessed(self, last_accessed_ts: float):
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def reuse_expected_time_s(self) -> float:
+        raise NotImplementedError
+
+    @reuse_expected_time_s.setter
+    @abstractmethod
+    def reuse_expected_time_s(self, reuse_expected_time_s: float):
+        raise NotImplementedError
+    
+    @property
+    @abstractmethod
+    def last_accessed_by_user(self) -> str:
+        raise NotImplementedError
+
+    @last_accessed_by_user.setter
+    @abstractmethod
+    def last_accessed_by_user(self, last_accessed_by_user: str):
+        raise NotImplementedError
+
     class Factory(Protocol):
 
         @abstractmethod

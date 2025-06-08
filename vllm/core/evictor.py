@@ -4,7 +4,9 @@ import enum
 import heapq
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple
+from vllm.logger import init_logger
 
+logger = init_logger(__name__)
 
 class EvictionPolicy(enum.Enum):
     """Enum for eviction policy used by make_evictor to instantiate the correct
@@ -154,10 +156,11 @@ class FreeBlockSwapScheduler:
             last_accessed_by_user: str = None):
         self.free_table[block_id] = BlockMetaData(content_hash,
                                                   num_hashed_tokens,
-                                                  last_accessed, 
+                                                  last_accessed,
                                                   reuse_expected_time_s,
                                                   last_accessed_by_user)
 
+        logger.info("[elasticswap] adding block_id=%d to swap scheduler" % block_id)
         # add to heap depending upon the strategy
         if self.swap_strategy == SwapStrategy.PERSIST or\
         self.swap_strategy == SwapStrategy.SWAP_LRU:
@@ -171,14 +174,15 @@ class FreeBlockSwapScheduler:
         elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
             # use hint based scoring 
             
-            # 1. add reuse hint 
-            reuse_expected_time = last_accessed + reuse_expected_time_s
+            reuse_expected_time = last_accessed
+            assert reuse_expected_time_s is not None,\
+                "reuse hint must be provided when using SWAP_HINTS"
+            reuse_expected_time += reuse_expected_time_s
+
             heapq.heappush(
                 self.priority_queue,
                 (-reuse_expected_time, last_accessed, -num_hashed_tokens, block_id, content_hash))
             self._cleanup_if_necessary()
-
-
 
     def _cleanup_if_necessary(self):
         if len(self.priority_queue) > LRUEvictor.CLEANUP_THRESHOLD * len(
@@ -199,6 +203,7 @@ class FreeBlockSwapScheduler:
             
             elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
                 reuse_expected_time_s = block.reuse_expected_time_s
+                assert reuse_expected_time_s is not None, "reuse hint must be provided when using SWAP_HINTS"
                 reuse_expected_time = block.last_accessed + reuse_expected_time_s
                 new_priority_queue.append(
                     (-reuse_expected_time, block.last_accessed, -block.num_hashed_tokens, block_id,

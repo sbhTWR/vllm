@@ -14,6 +14,7 @@ from typing import Set, Tuple, Union
 import numpy as np
 
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
+from vllm.core.block_manager import AllocationContextManager
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
@@ -2284,38 +2285,42 @@ class Scheduler:
                       seq_group: SequenceGroup,
                       blocks_to_copy: List[Tuple[int, int]],
                       enable_chunking: bool = False) -> None:
-        """Appends new slots to the sequences in the given sequence group.
+        
+        # set allocation context 
+        with AllocationContextManager(self.block_manager.block_allocator, seq_group):
+            
+            """Appends new slots to the sequences in the given sequence group.
 
-        Args:
-            seq_group (SequenceGroup): The sequence group containing the
-                sequences to append slots to.
-            blocks_to_copy (List[Tuple[int, int]]): A list of tuple of two
-                ints, the first int is the source block index, and the second
-                int is the destination block index. This list is updated with
-                the new source and destination block indices for the appended
-                slots.
-            enable_chunking (bool): True if chunked prefill is enabled.
-        """
-        is_prefill: bool = seq_group.is_prefill()
-        num_lookahead_slots: int = self._get_num_lookahead_slots(
-            is_prefill, enable_chunking)
+            Args:
+                seq_group (SequenceGroup): The sequence group containing the
+                    sequences to append slots to.
+                blocks_to_copy (List[Tuple[int, int]]): A list of tuple of two
+                    ints, the first int is the source block index, and the second
+                    int is the destination block index. This list is updated with
+                    the new source and destination block indices for the appended
+                    slots.
+                enable_chunking (bool): True if chunked prefill is enabled.
+            """
+            is_prefill: bool = seq_group.is_prefill()
+            num_lookahead_slots: int = self._get_num_lookahead_slots(
+                is_prefill, enable_chunking)
 
-        seq_group.init_multi_step_from_lookahead_slots(
-            num_lookahead_slots,
-            num_scheduler_steps=self.scheduler_config.num_scheduler_steps,
-            is_multi_step=self.scheduler_config.is_multi_step,
-            enable_chunking=enable_chunking)
+            seq_group.init_multi_step_from_lookahead_slots(
+                num_lookahead_slots,
+                num_scheduler_steps=self.scheduler_config.num_scheduler_steps,
+                is_multi_step=self.scheduler_config.is_multi_step,
+                enable_chunking=enable_chunking)
 
-        seq_status: Optional[SequenceStatus] = SequenceStatus.RUNNING
-        if self.scheduler_config.is_multi_step and enable_chunking:
-            # In multi-step chunked-prefill any sequence type can have
-            # slots appended.
-            seq_status = None
+            seq_status: Optional[SequenceStatus] = SequenceStatus.RUNNING
+            if self.scheduler_config.is_multi_step and enable_chunking:
+                # In multi-step chunked-prefill any sequence type can have
+                # slots appended.
+                seq_status = None
 
-        for seq in seq_group.get_seqs(status=seq_status):
-            cows = self.block_manager.append_slots(seq, num_lookahead_slots)
-            if len(cows) > 0:
-                blocks_to_copy.extend(cows)
+            for seq in seq_group.get_seqs(status=seq_status):
+                cows = self.block_manager.append_slots(seq, num_lookahead_slots)
+                if len(cows) > 0:
+                    blocks_to_copy.extend(cows)
 
     def _preempt(self, seq_group: SequenceGroup,
                  blocks_to_swap_out: List[Tuple[int, int]]) -> PreemptionMode:

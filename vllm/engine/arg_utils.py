@@ -447,8 +447,8 @@ class EngineArgs:
         parser.add_argument(
             '--swap-strategy',
             type=str,
-            default='swap_all',
-            choices=['persist', 'swap_all'],
+            default='swap-hints',
+            choices=['persist', 'swap-lru', 'swap-hints'],
             help='.')
         parser.add_argument(
             '--evict-token-thresh',

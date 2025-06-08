@@ -507,6 +507,7 @@ class PrefixCachingBlockAllocator(BlockAllocator):
             # Mark this block as touched so that it can be marked as
             # computed after the entire batch of sequences are scheduled.
             self._touched_blocks.add(block.block_id)
+
             return block.block_id
 
         # Reuse the cached content hash
@@ -824,7 +825,10 @@ class ElasticSwapBlockAllocator(BlockAllocator):
     def add_to_swap_scheduler(self, block_id, block_metadata):
         self.swap_scheduler.add(
             block_id, block_metadata.content_hash, block_metadata.num_hashed_tokens,
-            self._block_tracker[block_id].last_accessed)
+            self._block_tracker[block_id].last_accessed,
+            self._block_tracker[block_id].reuse_expected_time_s,
+            self._block_tracker[block_id].last_accessed_by_user
+        )
 
     def evict_n_from_swap_scheduler(self, n):
         block_ids_evicted = []
@@ -1235,6 +1239,12 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             self._cached_blocks[block.content_hash] = block.block_id
             # Mark this block as touched so that it can be marked as
             # computed after the entire batch of sequences are scheduled.
+
+            # add to block tracker 
+            block_tracker_obj = self._block_tracker[block.block_id]
+            block_tracker_obj.reuse_expected_time_s = block.reuse_expected_time_s
+            block_tracker_obj.last_accessed_by_user = block.last_accessed_by_user
+
             self._touched_blocks.add(block.block_id)
             return block.block_id
 
@@ -1505,6 +1515,8 @@ class PrefixCachingBlock(Block):
         self._last_accessed: float = _DEFAULT_LAST_ACCESSED_TIME
         self._computed = computed
         self._extra_hash = extra_hash
+        self._reuse_expected_time_s: float = None
+        self._last_accessed_by_user: str = None
 
         # On the first time, we create the block object, and next we only
         # reinitialize it
@@ -1554,6 +1566,23 @@ class PrefixCachingBlock(Block):
     @last_accessed.setter
     def last_accessed(self, last_accessed_ts: float):
         self._last_accessed = last_accessed_ts
+    
+    @property
+    def reuse_expected_time_s(self) -> float:
+        return self._reuse_expected_time_s
+
+    @reuse_expected_time_s.setter
+    def reuse_expected_time_s(self, reuse_expected_time_s: float):
+        self._reuse_expected_time_s = reuse_expected_time_s
+
+
+    @property
+    def last_accessed_by_user(self) -> str:
+        return self._last_accessed_by_user
+
+    @last_accessed_by_user.setter
+    def last_accessed_by_user(self, last_accessed_by_user: str):
+        self._last_accessed_by_user = last_accessed_by_user
 
     def append_token_ids(self, token_ids: List[int]) -> None:
         """Appends the given token IDs to the block and registers the block as
