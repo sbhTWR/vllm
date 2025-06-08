@@ -34,11 +34,11 @@ class BlockTracker:
     def reset(self):
         self.last_accessed: float = _DEFAULT_LAST_ACCESSED_TIME
         self.computed: bool = False
-        self.reuse_expected_time_s: float = None
-        self.last_accessed_by_user: str = None
 
     def __init__(self):
         self.active: bool = False
+        self.reuse_expected_time_s: float = None
+        self.last_accessed_by_user: str = None
         self.reset()
 
     def enable(self):

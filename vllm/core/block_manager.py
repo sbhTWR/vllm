@@ -169,18 +169,18 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
 
-        if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
-            num_required_blocks = self.get_num_required_blocks_prefix_aware(
-                seq.get_token_ids(),
-                block_size=self.block_size,
-                num_lookahead_slots=num_lookahead_slots,
-            )
-        else:
-            num_required_blocks = BlockTable.get_num_required_blocks(
-                seq.get_token_ids(),
-                block_size=self.block_size,
-                num_lookahead_slots=num_lookahead_slots,
-            )
+        # if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
+        #     num_required_blocks = self.get_num_required_blocks_prefix_aware(
+        #         seq.get_token_ids(),
+        #         block_size=self.block_size,
+        #         num_lookahead_slots=num_lookahead_slots,
+        #     )
+        # else:
+        num_required_blocks = BlockTable.get_num_required_blocks(
+            seq.get_token_ids(),
+            block_size=self.block_size,
+            num_lookahead_slots=num_lookahead_slots,
+        )
 
         if seq_group.is_encoder_decoder():
             encoder_seq = seq_group.get_encoder_seq()

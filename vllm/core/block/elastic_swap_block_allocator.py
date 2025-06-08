@@ -325,6 +325,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         block_metadata = None
         if swap_scheduler.num_blocks > 0:
             gpu_block_id, block_metadata = swap_scheduler.evict()
+            # logger.info(">>>> gpu_block_id=%d evicted from swap scheduler. user_id=%s" 
+            #             % (gpu_block_id, block_metadata.last_accessed_by_user))
         else:
             raise BlockAllocator.NoFreeBlocksError()
 
@@ -474,6 +476,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
                 # TODO: do we need to lock the cpu block?
 
+                block_metadata = self._allocators[device]._block_tracker[_block_id_tmp]
                 replacement_was_needed = True
                 # allocate a gpu block 
                 # gpu_block_id_replacement = self._allocators[device]._allocate_block_id() 
@@ -495,7 +498,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                     _block_id_tmp,
                     gpu_block_id_replacement,
                     content_hash,
-                    now=False
+                    now=False,
+                    block_metadata=block_metadata
                 )
 
                 self._swap_mapping[_block_id_tmp] = gpu_block_id_replacement
@@ -540,6 +544,9 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
                 delta = time.time() - last_access_time
 
+                # logger.info("[elasticswap_debug] old_reuse_time_s=%f old_user_id=%s reuse=True replacement_was_needed=%s" % 
+                #             (old_reuse_time_s if old_reuse_time_s else 0.0, old_user_id, replacement_was_needed))
+
                 if (delta >= old_reuse_time_s):
                     # reset 
                     block_tracker_obj.reuse_expected_time_s = new_reuse_time_s
@@ -553,8 +560,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             else:
                 # assign 
                 block_tracker_obj.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
-                logger.info("[elasticswap] block_id=%d hint<kv_reuse_expected_duration_s>=%f" %
-                            (block_id, block_tracker_obj.reuse_expected_time_s))
+                # logger.info("[elasticswap] block_id=%d hint<kv_reuse_expected_duration_s>=%f" %
+                #             (block_id, block_tracker_obj.reuse_expected_time_s))
                 block_tracker_obj.last_accessed_by_user = user_id
 
         # print('block_id (%d) -> %s' % (block_id, self.allocation_ctx.seq_group.user_id))
@@ -660,10 +667,11 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         old_block_tracker_obj = block_tracker[old_block_id]
 
-        # print("replacing old_block_id=%d --> new_block_id=%d old block is active = %s user_id=%s" % 
-        #       (old_block_id, new_block_id, 
+        # logger.info("replacing old_block_id=%d --> new_block_id=%d old block is active = %s user_id=%s" % 
+        #       (old_block_id, new_block_id,
         #        old_block_tracker_obj.active, 
         #        old_block_tracker_obj.last_accessed_by_user))
+
 
         # if block_metadata:
         #     print('last_accessed_by_user=%s' % block_metadata.last_accessed_by_user)
@@ -688,6 +696,13 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             new_block_tracker_obj.last_accessed = old_block_tracker_obj.last_accessed
 
         block_tracker[new_block_id] = new_block_tracker_obj
+        
+        # logger.info("user_id=%s" % block_metadata.last_accessed_by_user)
+        # logger.info("replaced old_block_id=%d --> new_block_id=%d new block is active = %s user_id=%s" % 
+            #   (old_block_id, new_block_id,
+            #    new_block_tracker_obj.active, 
+            #    new_block_tracker_obj.last_accessed_by_user))
+        
         # print(old_block_id)
         if old_block_tracker_obj.active and untrack_old:
             block_tracker[old_block_id].disable()

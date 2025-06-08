@@ -14,7 +14,6 @@ class EvictionPolicy(enum.Enum):
     """
     LRU = enum.auto()
 
-
 class SwapStrategy(enum.Enum):
     SWAP_LRU = enum.auto()
     PERSIST = enum.auto()
