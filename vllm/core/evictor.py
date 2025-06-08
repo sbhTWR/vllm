@@ -160,7 +160,7 @@ class FreeBlockSwapScheduler:
                                                   reuse_expected_time_s,
                                                   last_accessed_by_user)
 
-        logger.info("[elasticswap] adding block_id=%d to swap scheduler" % block_id)
+        # logger.info("[elasticswap] adding block_id=%d to swap scheduler" % block_id)
         # add to heap depending upon the strategy
         if self.swap_strategy == SwapStrategy.PERSIST or\
         self.swap_strategy == SwapStrategy.SWAP_LRU:

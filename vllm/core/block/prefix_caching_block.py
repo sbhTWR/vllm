@@ -987,12 +987,21 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         assert block_id is not None
 
         refcount = self._refcounter.incr(block_id)
+        block_metadata = None
         if refcount == 1:
             # In case a cached block was evicted, restore its tracking
             if block_id in self.swap_scheduler:
+                block_metadata = self.swap_scheduler.free_table[block_id]
                 self.swap_scheduler.remove(block_id)
 
             self._track_block_id(block_id, computed=True)
+
+            # restore old metadata as well
+            if block_metadata:
+                block_tracker_obj = self._block_tracker[block_id]
+                block_tracker_obj.last_accessed = block_metadata.last_accessed
+                block_tracker_obj.last_accessed_by_user = block_metadata.last_accessed_by_user
+                block_tracker_obj.reuse_expected_time_s = block_metadata.reuse_expected_time_s
 
     def _decr_refcount_cached_block(self, block: Block) -> None:
         # Ensure this is immutable/cached block

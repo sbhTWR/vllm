@@ -467,6 +467,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         )
 
         replacement_was_needed = False
+        reuse = True
         if _block_id_tmp:
             assert content_hash is not None
             if not self._is_gpu_block_unsafe(_block_id_tmp):
@@ -508,6 +509,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 prev_block, Device.GPU, extra_hash=extra_hash)
             
             block.append_token_ids(token_ids)
+            reuse = False
 
         if replacement_was_needed:
             assert block.block_id == gpu_block_id_replacement
@@ -519,15 +521,41 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         if replacement_was_needed:
             assert block_computed == True
         
-        # update hints 
-        hints = self.allocation_ctx.seq_group.hints
-        block_tracker_obj = self._allocators[device]._block_tracker[block_id]
         if self.swap_strategy == SwapStrategy.SWAP_HINTS:
+            # update hints 
+            hints = self.allocation_ctx.seq_group.hints
+            user_id = self.allocation_ctx.seq_group.user_id
             assert hints is not None, "hints must be initialized when using SWAP_HINTS"
-            block_tracker_obj.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
-            logger.info("[elasticswap] block_id=%d hint<kv_reuse_expected_duration_s>=%f" %
-                         (block_id, block_tracker_obj.reuse_expected_time_s))
-        block_tracker_obj.last_accessed_by_user = self.allocation_ctx.seq_group.user_id
+            assert user_id is not None, "user_id must be provided when using SWAP_HINTS"
+            block_tracker_obj = self._allocators[device]._block_tracker[block_id]
+
+            if reuse:
+                # update 
+                old_reuse_time_s = block_tracker_obj.reuse_expected_time_s
+                old_user_id = block_tracker_obj.last_accessed_by_user
+                new_reuse_time_s = hints.kv_reuse_expected_duration_s
+                new_user_id = user_id
+
+                last_access_time = block_tracker_obj.last_accessed
+
+                delta = time.time() - last_access_time
+
+                if (delta >= old_reuse_time_s):
+                    # reset 
+                    block_tracker_obj.reuse_expected_time_s = new_reuse_time_s
+                    
+                elif old_user_id != new_user_id:
+                    block_tracker_obj.reuse_expected_time_s = min(new_reuse_time_s, old_reuse_time_s - delta)
+
+                block_tracker_obj.last_accessed_by_user = new_user_id
+
+                assert block_tracker_obj.reuse_expected_time_s >= 0.0
+            else:
+                # assign 
+                block_tracker_obj.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
+                logger.info("[elasticswap] block_id=%d hint<kv_reuse_expected_duration_s>=%f" %
+                            (block_id, block_tracker_obj.reuse_expected_time_s))
+                block_tracker_obj.last_accessed_by_user = user_id
 
         # print('block_id (%d) -> %s' % (block_id, self.allocation_ctx.seq_group.user_id))
 
