@@ -149,7 +149,7 @@ def run_experiment(
 
     output_log_file = vllm_log_file.split(".")[0] 
     # kill anything on port 
-    run_sync(['killport', str(port)])
+    # run_sync(['killport', str(port)])
     
     p, p_stdout, p_stderr, t_stdout, t_stderr = run_async(
         [
@@ -170,7 +170,7 @@ def run_experiment(
         ],
         output_filename=output_log_file,
         block_until_output="Uvicorn running",
-        timeout=200,
+        timeout=500,
         env=env
     )
 
@@ -188,7 +188,7 @@ def run_experiment(
     """
     execute_workload_fn(port=port)
 
-    time.sleep(10)
+    time.sleep(60)
     
 
     p_stdout.terminate()

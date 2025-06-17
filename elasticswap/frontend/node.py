@@ -3,7 +3,7 @@ import json
 import openai
 from typing import Dict, Any, Union, Callable, Optional
 from uuid import uuid4
-
+import httpx
 import asyncio
 
 class ContextStore:
@@ -104,6 +104,7 @@ class LLMCallNode(Node):
                 messages=store.construct_openai_message(),
                 model=store.model,
                 temperature=0,
+                max_tokens=128,
                 user=json.dumps({"id": store.agentid,
                                  "type": "append",
                                  "hints": self.metadata

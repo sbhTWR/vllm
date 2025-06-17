@@ -1,18 +1,21 @@
 import asyncio
 import os
+import random
 import shutil
 import time
+from functools import partial
 from lorem_text import lorem
 import numpy as np
 from utils import run_experiment, ensure_dir
 from executor import AsyncDAGExecutor, MultiDAGExecutor, annotate_expected_durations
 from node import Node, LLMCallNode, ToolCallNode, WhileLoopNode
 
-rng = np.random.default_rng(seed=42)
+random.seed(42)
+np.random.seed(42)
 
-# choose randomly distributed numbers 
-
-def generate_variable_llm_toolcall_workload(num_requests: int, seed: int = None, vary_interrupts: bool = True):
+def generate_variable_llm_toolcall_workload(num_requests: int, 
+                                            seed: int = None, 
+                                            vary_interrupts: bool = True):
     """
     Generate a list of LLM request parameter dicts:
     - request_size: Number of tokens (capped at 30,000)
@@ -21,16 +24,18 @@ def generate_variable_llm_toolcall_workload(num_requests: int, seed: int = None,
     - interrupt_lens: (if vary_interrupts=True) List of durations for each tool call
     """
     if seed is not None:
-        np.random.seed(seed)
+        rng = np.random.default_rng(seed=seed)
     
     workloads = []
     
     for _ in range(num_requests):
         # 1. Request size: log-normal distribution, capped at 30k
-        request_size = int(np.clip(
-            np.random.lognormal(mean=np.log(15000), sigma=0.5),
-            8000, 30000
-        ))
+        # request_size = int(np.clip(
+        #     np.random.lognormal(mean=np.log(15000), sigma=0.5),
+        #     8000, 30000
+        # ))
+
+        request_size = 30000
         
         # 2. Number of tool call interrupts
         num_interrupts = int(np.random.choice(
@@ -39,15 +44,15 @@ def generate_variable_llm_toolcall_workload(num_requests: int, seed: int = None,
         ))
         
         # 3. Interrupt durations
-        max_total_interrupt_time = 0.5 * request_size / 1000  # e.g., 15s for 30k
+        max_total_interrupt_time = 1 * request_size / 1000  # e.g., 15s for 30k
 
         if vary_interrupts:
             # Generate individual tool call durations
             durations = []
             for _ in range(num_interrupts):
                 dur = float(np.clip(
-                    np.random.lognormal(mean=np.log(1.0), sigma=0.7),
-                    0.1, 10.0
+                    rng.lognormal(mean=np.log(1.0), sigma=0.7),
+                    0.1, 25.0
                 ))
                 durations.append(dur)
             
@@ -66,15 +71,17 @@ def generate_variable_llm_toolcall_workload(num_requests: int, seed: int = None,
             }
         else:
             # Generate one constant duration
-            dur = float(np.clip(
-                np.random.lognormal(mean=np.log(1.0), sigma=0.7),
-                0.1, 10.0
-            ))
-            dur = min(dur, max_total_interrupt_time / num_interrupts)
+            # dur = float(np.clip(
+            #     rng.lognormal(mean=np.log(1.0), sigma=0.7),
+            #     0.1, 250.0
+            # ))
+            # dur = min(dur, max_total_interrupt_time / num_interrupts)
+            num = rng.integers(1, 20)
+            dur = int(num)
             workload = {
-                "request_size": request_size,
+                "context": lorem.words(request_size),
                 "num_interrupts": num_interrupts,
-                "interrupt_len": round(dur, 3)
+                "interrupt_len": dur
             }
         
         workloads.append(workload)
@@ -82,9 +89,9 @@ def generate_variable_llm_toolcall_workload(num_requests: int, seed: int = None,
     return workloads
 
 
-def generate_dag_constant_interrupt_len(request_size, num_interrupts, interrupt_len):
+def generate_dag_constant_interrupt_len(context, num_interrupts, interrupt_len):
     dag = []
-    context = lorem.words(request_size)
+    # context = lorem.words(request_size)
     llm = LLMCallNode(context + "Please summarize the following text")
     dag.append(llm)
     for _ in range(num_interrupts):
@@ -106,8 +113,8 @@ def generate_dag_constant_interrupt_len(request_size, num_interrupts, interrupt_
     
     return dag
 
-async def run_dags_with_arrival_times(dags, arrival_times):
-
+async def run_dags_with_arrival_times(dags, 
+                                      arrival_times):
     """
     Init multi executor 
     """
@@ -124,104 +131,196 @@ async def run_dags_with_arrival_times(dags, arrival_times):
         agent_id += 1 
 
     executor.shutdown()
-
     await executor.await_all_done()
 
     print("All finished DAGs")
 
+async def run_dags_batch(dags):
 
-def execute_workload_variable_interrupts(port):
+    """
+    Init multi executor 
+    """
+
+    executor = MultiDAGExecutor()
+    # Start background executor loop
+    asyncio.create_task(executor.run_forever())
+
+    agent_id = 0
+    for dag in dags:
+        print("submitting dag=%d" % agent_id)
+        await executor.submit_dag(dag, "agent_%d" % agent_id)
+        agent_id += 1 
+
+    executor.shutdown()
+    await executor.await_all_done()
+
+    print("All finished DAGs")
+
+def execute_workload_variable_interrupts(port, 
+                                         requests,
+                                         arrival_times,
+                                         seed=42):
     
+    # rng = np.random.default_rng(seed=seed)
     dags = []
     # choose everything in variable fashion
 
-    rate = 0.30
-    t = 50
-    num_events = int(rate * t)
-    exp_times = rng.exponential(scale=1/rate, size=num_events)
+    # rates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    # t = 500
+    # num_events = int(rate * t)
+    # exp_times = rng.exponential(scale=1/rate, size=num_events)
     
-    print(np.cumsum(exp_times))
-    arrival_times = list(exp_times)
+    # print(np.cumsum(exp_times))
+    # arrival_times = list(exp_times)
 
-    print(arrival_times)
+    # print(arrival_times)
     # input()
 
-    requests = generate_variable_llm_toolcall_workload(
-        num_requests=num_events,
-        seed=42,
-        vary_interrupts=False
-    )
+    num_requests = len(arrival_times)
+    assert len(requests) == num_requests
 
+    # for i, req in enumerate(requests):
+    #     print("id=%d %s" % (i, req))
+
+    # input()
     # generate DAG for each request 
     for request in requests:
         dag = generate_dag_constant_interrupt_len(**request)
         dags.append(dag)
-    
-    """
-    Before running DAGs, init vllm 
-    """
 
+
+    # asyncio.run(run_dags_batch(dags))
     asyncio.run(run_dags_with_arrival_times(dags, arrival_times))
-
 
 def main():
 
-    env = {
-        'CUDA_VISIBLE_DEVICES': '0,1,2,3',
-        'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
-    }
+    # requests1 = generate_variable_llm_toolcall_workload(
+    #     num_requests=2,
+    #     seed=42,
+    #     vary_interrupts=False
+    # )
+
+    # requests2 = generate_variable_llm_toolcall_workload(
+    #     num_requests=2,
+    #     seed=42,
+    #     vary_interrupts=False
+    # )
+
+    # print(requests1)
+    # print(requests2)
     
-    exp_name = "oracle-test-1"
-    results_path = "/vllm/vllm/elasticswap/results"
-    abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
+    # context1 = lorem.words(30)
+    # context2 = lorem.words(30)
+    # print(context1)
+    # print(context2)
+    # input()
 
-    ensure_dir(abs_path)
-    copied_script_name = "pipeline.py"
 
-    shutil.copy(__file__, os.path.join(abs_path, copied_script_name)) 
+    # num_requests_list = [5, 10, 15, 20]
+    # num_requests_list = [15]
 
-    exps = [
-        # {
-        #     "execute_workload_fn": execute_workload_variable_interrupts,
-        #     'results_path': results_path,
-        #     'exp_name':  exp_name,
-        #     'config_name': "swap-hint",
-        #     'env': env,
-        #     'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-        #     'tp_size': 1, 
-        #     'pp_size': 1, 
-        #     'swap_space': 100,
-        #     'evict_token_thresh': 1000000,
-        #     'evict_token_count': 10000,
-        #     'enable_chunked_prefill': False,
-        #     'fr_policy': "default",
-        #     'swap_strategy': "swap-hints",
-        #     'block_allocator': "CpuOffloadingBlockAllocator",
-        #     'port': 8000,
-        # },
 
-        {
-            "execute_workload_fn": execute_workload_variable_interrupts,
-            'results_path': results_path,
-            'exp_name':  exp_name,
-            'config_name': "swap-lru",
-            'env': env,
-            'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-            'tp_size': 1, 
-            'pp_size': 1, 
-            'swap_space': 100,
-            'evict_token_thresh': 1000000,
-            'evict_token_count': 10000,
-            'enable_chunked_prefill': False,
-            'fr_policy': "default",
-            'swap_strategy': "swap-lru",
-            'block_allocator': "CpuOffloadingBlockAllocator",
-            'port': 8000,
+    # requests = generate_variable_llm_toolcall_workload(
+    #     num_requests=15,
+    #     seed=42,
+    #     vary_interrupts=False
+    # )
+
+    # for i, req in enumerate(requests):
+    #     print("id=%d %s" % (i, req))
+
+    # input()
+
+    # choose everything in variable fashion
+    rng = np.random.default_rng(seed=42)
+    # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.6, 0.7, 0.9, 1.0]
+    rates = [0.05]
+    # rates = [0.2]
+    # rates = [0.2]
+    # rates = [0.04]
+    # rates = [0.1]
+    t = 100
+
+    for rate in rates:
+        num_events = int(rate * t)
+        exp_times = rng.exponential(scale=1/rate, size=num_events)
+        
+        print(np.cumsum(exp_times))
+        arrival_times = list(exp_times)
+        num_requests = len(arrival_times)
+
+        requests = generate_variable_llm_toolcall_workload(
+            num_requests=num_requests,
+            seed=42,
+            vary_interrupts=False
+        )
+
+        print("---- Generated requests -----")
+        # for request in requests:
+            
+
+        print('Running experiment for rate=%.2f' % rate)
+
+        env = {
+            'CUDA_VISIBLE_DEVICES': '1',
+            'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
-    ]
+        
+        exp_name = "oracle-test-12-num-rate-%d" % (int(rate * 100))
+        results_path = "/vllm/vllm/elasticswap/results"
+        abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
-    for exp in exps:
-        run_experiment(**exp)
+        ensure_dir(abs_path)
+        copied_script_name = "pipeline.py"
+        shutil.copy(__file__, os.path.join(abs_path, copied_script_name))
+        exec_workload_fn = partial(execute_workload_variable_interrupts,
+                                   requests=requests,
+                                   arrival_times=arrival_times,
+                                   seed=42)
+
+        exps = [
+            {
+                "execute_workload_fn": exec_workload_fn,
+                'results_path': results_path,
+                'exp_name':  exp_name,
+                'config_name': "swap-hint",
+                'env': env,
+                'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+                'tp_size': 1, 
+                'pp_size': 1, 
+                'swap_space': 100,
+                'evict_token_thresh': 1000000,
+                'evict_token_count': 10000,
+                'enable_chunked_prefill': False,
+                'fr_policy': "default",
+                'swap_strategy': "swap-hints",
+                'block_allocator': "CpuOffloadingBlockAllocator",
+                'port': 8000,
+            },
+
+            {
+                "execute_workload_fn": exec_workload_fn,
+                'results_path': results_path,
+                'exp_name':  exp_name,
+                'config_name': "swap-lru",
+                'env': env,
+                'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+                'tp_size': 1, 
+                'pp_size': 1, 
+                'swap_space': 100,
+                'evict_token_thresh': 1000000,
+                'evict_token_count': 10000,
+                'enable_chunked_prefill': False,
+                'fr_policy': "default",
+                'swap_strategy': "swap-lru",
+                'block_allocator': "CpuOffloadingBlockAllocator",
+                'port': 8000,
+            }
+        ]
+
+        for exp in exps:
+            run_experiment(**exp)
 
 
 if __name__ == "__main__":

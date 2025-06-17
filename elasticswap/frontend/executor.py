@@ -1,6 +1,7 @@
 import asyncio
 from typing import List, Optional
 from openai import OpenAI
+import httpx
 from node import Node, ContextStore, ToolCallNode
 
 
@@ -18,7 +19,8 @@ class AsyncDAGExecutor:
     def init_openai_client(self, port: int = 8000):
         self.client = OpenAI(
             api_key="EMPTY",
-            base_url=f"http://localhost:{port}/v1"
+            base_url=f"http://localhost:{port}/v1",
+            http_client=httpx.Client(timeout=None)
         )
 
     async def run(self) -> ContextStore:
