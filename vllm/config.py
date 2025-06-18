@@ -1540,6 +1540,9 @@ class SchedulerConfig:
     evict_token_thresh: int = 1e6
     evict_token_count: int = 10000
 
+    enable_returning_queue: bool = False
+
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,

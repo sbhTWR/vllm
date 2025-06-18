@@ -129,6 +129,9 @@ class RequestMetrics:
     model_forward_time: Optional[float] = None
     model_execute_time: Optional[float] = None
     cache_ops_time: Optional[float] = None
+    swap_in_time: Optional[float] = None 
+    swap_out_time: Optional[float] = None 
+    copy_time: Optional[float] = None
 
 
 class SequenceDataDelta(

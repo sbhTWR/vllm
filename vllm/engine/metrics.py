@@ -526,12 +526,20 @@ class CsvStatLogger(StatLoggerBase):
         self.tbt_acc = []
 
         self.swap_times_requests_acc = []
+        self.swap_in_times_requests_acc = []
+        self.swap_out_times_requests_acc = []
+        self.copy_times_requests_acc = []
+
         self.scheduler_times_requests_acc = []
         self.queue_times_requests_acc = []
         self.model_forward_times_requests_acc = []
         self.model_exec_times_requests_acc = []
 
         self.swap_times_iter_acc = []
+        self.swap_in_times_iter_acc = []
+        self.swap_out_times_iter_acc = []
+        self.copy_times_iter_acc = []
+
         self.scheduler_times_iter_acc = []
         self.queue_times_iter_acc = []
         self.model_forward_times_iter_acc = []
@@ -550,8 +558,12 @@ class CsvStatLogger(StatLoggerBase):
         header = ["timestamp", "prompt_throughput_avg", "generation_throughput_avg", 
                    "num_running_reqs", "num_swapped_reqs", "num_waiting_reqs",
                    "gpu_cache_usage", "cpu_cache_usage", "ttft_avg", "tbt_avg",
-                   "swap_t_requests", "queue_t_requests", "model_forward_t_requests", "model_exec_t_requests", "sched_t_requests",
-                   "swap_t_iter", "model_forward_t_iter", "model_exec_t_iter", "sched_t_iter",
+                   "swap_t_requests", "swap_in_t_requests", "swap_out_t_requests",
+                   "copy_t_requests",
+                   "queue_t_requests", "model_forward_t_requests", 
+                   "model_exec_t_requests", "sched_t_requests",
+                   "swap_t_iter", "swap_in_t_iter", "swap_out_t_iter", "copy_t_iter",
+                   "model_forward_t_iter", "model_exec_t_iter", "sched_t_iter",
                    ]
 
         self.log_csv.writerow(header)
@@ -583,6 +595,8 @@ class CsvStatLogger(StatLoggerBase):
         self.tbt_acc.extend(stats.time_per_output_tokens_iter)
 
         self.swap_times_requests_acc.extend(stats.cache_ops_time_requests)
+        # self.swap_in_times_iter_acc.extend(stats.swap_in_time)
+
         self.scheduler_times_requests_acc.extend(stats.scheduler_time_requests)
         self.queue_times_requests_acc.extend(stats.time_in_queue_requests)
         self.model_forward_times_requests_acc.extend(stats.model_forward_time_requests)
@@ -590,6 +604,10 @@ class CsvStatLogger(StatLoggerBase):
 
 
         self.swap_times_iter_acc.extend(stats.cache_ops_time_iter)
+        self.swap_in_times_iter_acc.extend(stats.swap_in_time_iter)
+        self.swap_out_times_iter_acc.extend(stats.swap_out_time_iter)
+        self.copy_times_iter_acc.extend(stats.copy_time_iter)
+
         self.scheduler_times_iter_acc.extend(stats.scheduler_time_iter)
         self.model_forward_times_iter_acc.extend(stats.model_forward_time_iter)
         self.model_exec_times_iter_acc.extend(stats.model_execute_time_iter)
@@ -677,6 +695,18 @@ class CsvStatLogger(StatLoggerBase):
             swap_times_len = len(swap_times)
             swap_t = sum(swap_times) / swap_times_len if swap_times_len != 0 else 0 
 
+            swap_in_times = self.swap_in_times_requests_acc
+            swap_in_times_len = len(swap_in_times)
+            swap_in_t = sum(swap_in_times) / swap_in_times_len if swap_in_times_len !=0 else 0
+
+            swap_out_times = self.swap_out_times_requests_acc
+            swap_out_times_len = len(swap_out_times)
+            swap_out_t = sum(swap_out_times) / swap_out_times_len if swap_out_times_len !=0 else 0
+
+            copy_times = self.copy_times_requests_acc
+            copy_times_len = len(copy_times)
+            copy_t = sum(copy_times) / copy_times_len if copy_times_len !=0 else 0
+
             scheduler_times = self.scheduler_times_requests_acc
             scheduler_times_len = len(scheduler_times)
             sched_t = sum(scheduler_times) / scheduler_times_len if scheduler_times_len != 0 else 0
@@ -700,6 +730,19 @@ class CsvStatLogger(StatLoggerBase):
             swap_times_iter_len = len(swap_times_iter)
             swap_t_iter = sum(swap_times_iter) / swap_times_iter_len if swap_times_iter_len != 0 else 0 
 
+            swap_in_times_iter = self.swap_in_times_iter_acc
+            swap_in_times_iter_len = len(swap_in_times_iter)
+            swap_in_t_iter = sum(swap_in_times_iter) / swap_in_times_iter_len if swap_in_times_iter_len != 0 else 0 
+
+            swap_out_times_iter = self.swap_out_times_iter_acc
+            swap_out_times_iter_len = len(swap_out_times_iter)
+            swap_out_t_iter = sum(swap_out_times_iter) / swap_out_times_iter_len if swap_out_times_iter_len != 0 else 0 
+
+            copy_times_iter = self.copy_times_iter_acc
+            copy_times_iter_len = len(copy_times_iter)
+            copy_t_iter = sum(copy_times_iter) / copy_times_iter_len if copy_times_iter_len != 0 else 0 
+
+
             scheduler_times_iter = self.scheduler_times_iter_acc
             scheduler_times_iter_len = len(scheduler_times_iter)
             sched_t_iter = sum(scheduler_times_iter) / scheduler_times_iter_len if scheduler_times_iter_len != 0 else 0
@@ -715,11 +758,13 @@ class CsvStatLogger(StatLoggerBase):
             # logger.info("[log_es] model_exec_t_iter=%f model_exec_times_iter_len=%d"
             #              % (model_exec_t_iter, model_exec_times_iter_len))
 
-            row = [now, prompt_throughput_avg, generation_throughput_avg, 
+            row = [now, prompt_throughput_avg, generation_throughput_avg,
                    num_running_reqs, num_swapped_reqs, num_waiting_reqs,
                    gpu_cache_usage, cpu_cache_usage, ttft_avg, time_per_token_avg,
-                   swap_t, queue_t, model_forward_t, model_exec_t, sched_t,
-                   swap_t_iter, model_forward_t_iter, model_exec_t_iter, sched_t_iter]
+                   swap_t, swap_in_t, swap_out_t, copy_t,
+                   queue_t, model_forward_t, model_exec_t, sched_t,
+                   swap_t_iter, swap_in_t_iter, swap_out_t_iter, copy_t_iter,
+                   model_forward_t_iter, model_exec_t_iter, sched_t_iter]
 
             self.log_csv.writerow(row)
             self.file_handle.flush()

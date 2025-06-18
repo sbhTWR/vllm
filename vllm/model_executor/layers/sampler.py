@@ -132,6 +132,9 @@ class SamplerOutput(
 
     # Swap times 
     cache_ops_time: Optional[float] = None
+    swap_in_time: Optional[float] = None
+    swap_out_time: Optional[float] = None
+    copy_time: Optional[float] = None
 
     def __getitem__(self, idx: int) -> CompletionSequenceGroupOutput:
         return self.outputs[idx]

@@ -399,9 +399,15 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         
         torch.cuda.synchronize()
         cache_ops_start_t = time.perf_counter()
-        self.execute_worker(worker_input)
+        ret = self.execute_worker(worker_input)
         torch.cuda.synchronize()
         cache_ops_time = time.perf_counter() - cache_ops_start_t
+
+        swap_in_t = 0.0
+        swap_out_t = 0.0 
+        copy_t = 0.0
+        if ret is not None:
+            swap_in_t, swap_out_t, copy_t = ret 
 
         # If there is no input, we don't need to execute the model.
         if worker_input.num_seq_groups == 0:
@@ -410,6 +416,9 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         intermediate_tensors = None
         orig_model_execute_time = 0.0
         orig_cache_ops_time = 0.0
+        orig_swap_in_time = 0.0 
+        orig_swap_out_time = 0.0 
+        orig_copy_time = 0.0 
         if not get_pp_group().is_first_rank:
             intermediate_tensors = IntermediateTensors(
                 get_pp_group().recv_tensor_dict(
@@ -420,6 +429,13 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     "model_execute_time", torch.tensor(0)).item()
             orig_cache_ops_time = intermediate_tensors.tensors.get(
                     "cache_ops_time", torch.tensor(0)).item()
+            
+            orig_swap_in_time = intermediate_tensors.tensors.get(
+                    "swap_in_time", torch.tensor(0)).item()
+            orig_swap_out_time = intermediate_tensors.tensors.get(
+                    "swap_out_time", torch.tensor(0)).item()
+            orig_copy_time = intermediate_tensors.tensors.get(
+                    "copy_time", torch.tensor(0)).item()
 
         output = self.model_runner.execute_model(
             model_input=model_input,
@@ -441,6 +457,15 @@ class LocalOrDistributedWorkerBase(WorkerBase):
             
             output.tensors["cache_ops_time"] = torch.tensor(
                     cache_ops_time + orig_cache_ops_time)
+            
+            output.tensors["swap_in_time"] = torch.tensor(
+                    swap_in_t + orig_swap_in_time)
+
+            output.tensors["swap_out_time"] = torch.tensor(
+                    swap_out_t + orig_swap_out_time)
+
+            output.tensors["copy_time"] = torch.tensor(
+                    copy_t + orig_copy_time)
 
             get_pp_group().send_tensor_dict(output.tensors,
                                             all_gather_group=get_tp_group())
@@ -454,6 +479,10 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                                         model_execute_time)
                 
                 o.cache_ops_time = (orig_cache_ops_time + cache_ops_time)
+
+                o.swap_in_time = (orig_swap_in_time + swap_in_t)
+                o.swap_out_time = (orig_swap_out_time + swap_out_t)
+                o.copy_time = (orig_copy_time + copy_t)
 
         # output is List[SamplerOutput]
         return output

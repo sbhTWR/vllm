@@ -1013,7 +1013,10 @@ class Scheduler:
 
     def add_seq_group(self, seq_group: SequenceGroup) -> None:
         # Add sequence groups to the waiting queue.
-        self.waiting.append(seq_group)
+        if self.scheduler_config.enable_returning_queue and seq_group.returning:
+            self.returning.append(seq_group)
+        else:
+            self.waiting.append(seq_group)
 
     def update_seq_group(self, new_seq_group: SequenceGroup, 
                             seq_group: SequenceGroup,
@@ -1142,7 +1145,7 @@ class Scheduler:
         return self.block_manager.reset_prefix_cache()
 
     def get_num_unfinished_seq_groups(self) -> int:
-        return len(self.waiting) + len(self.running) + len(self.swapped)
+        return len(self.waiting) + len(self.running) + len(self.swapped) + len(self.returning)
 
     def get_and_reset_finished_requests_ids(self) -> List[str]:
         """Flushes the list of request ids of previously finished seq_groups."""
@@ -1542,6 +1545,7 @@ class Scheduler:
         budget: SchedulingBudget,
         curr_loras: Optional[Set[int]],
         enable_chunking: bool = False,
+        queue: Optional[deque] = None,
     ) -> SchedulerPrefillOutputs:
         """Schedule sequence groups that are in prefill stage.
 
@@ -1569,7 +1573,10 @@ class Scheduler:
         ignored_seq_groups: List[SequenceGroup] = []
         seq_groups: List[ScheduledSequenceGroup] = []
 
-        waiting_queue = self.waiting
+        if queue:
+            waiting_queue = queue
+        else:
+            waiting_queue = self.waiting
 
         leftover_waiting_sequences: Deque[SequenceGroup] = deque()
         while self._passed_delay(time.time()) and waiting_queue:
@@ -1743,9 +1750,19 @@ class Scheduler:
 
         # If any requests are swapped, prioritized swapped requests.
         if not self.swapped:
+            prefills_returning = self._schedule_prefills(budget,
+                                               curr_loras,
+                                               enable_chunking=False,
+                                               queue=self.returning)
+
             prefills = self._schedule_prefills(budget,
                                                curr_loras,
-                                               enable_chunking=False)
+                                               enable_chunking=False,
+                                               queue=self.waiting)
+            
+            # join the two outputs 
+            prefills.seq_groups.extend(prefills_returning.seq_groups)
+            prefills.ignored_seq_groups.extend(prefills_returning.ignored_seq_groups)
 
         if len(prefills.seq_groups
                ) == 0 and self.scheduler_config.policy == "priority":
@@ -1887,9 +1904,29 @@ class Scheduler:
                 running_scheduled.swapped_out) == 0:
             swapped_in = self._schedule_swapped(budget, curr_loras)
 
+        """
+        Old version
+        """
+        # prefills = self._schedule_prefills(budget,
+        #                                    curr_loras,
+        #                                    enable_chunking=True)
+        """
+        New version
+        """
+        prefills_returning = self._schedule_prefills(budget,
+                                               curr_loras,
+                                               enable_chunking=True,
+                                               queue=self.returning)
+
         prefills = self._schedule_prefills(budget,
-                                           curr_loras,
-                                           enable_chunking=True)
+                                               curr_loras,
+                                               enable_chunking=True,
+                                               queue=self.waiting)
+            
+        # join the two outputs 
+        prefills.seq_groups.extend(prefills_returning.seq_groups)
+        prefills.ignored_seq_groups.extend(prefills_returning.ignored_seq_groups)
+
 
         assert (budget.num_batched_tokens
                 <= self.scheduler_config.max_num_batched_tokens)

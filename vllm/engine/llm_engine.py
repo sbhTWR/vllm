@@ -650,18 +650,25 @@ class LLMEngine:
             raise ValueError(
                 "Either SamplingParams or PoolingParams must be provided.")
 
+        """
+        SequenceGroup has been created here.
+        Check if its a returning agent
+        """
         scheduled = False
         user_id = seq_group.user_id
         req_type = seq_group.user_args['type']
         if user_id:
-            
             if not (user_id in self.active_agents):
+                # new agent 
                 self.active_agents[user_id] = RetrifyAgentMetrics(
                     agent_id=user_id,
                     active_llm_calls=0,
                     start_t=arrival_time,
                     end_t=None,
                 )
+            else:
+                # returning agent 
+                seq_group._returning = True
             
             # else:
             #     assert self.active_agents[user_id].finished == False
@@ -1086,8 +1093,8 @@ class LLMEngine:
 
         if len(seq_group_metadata_list) != len(
             scheduler_outputs.scheduled_seq_groups):
-            for o in outputs:
-                logger.info("[elasticswap][ctx] outputs: %f" % o.cache_ops_time)
+            # for o in outputs:
+            #     logger.info("[elasticswap][ctx] outputs: %f" % o.cache_ops_time)
             # logger.info("[elasticswap] seq_group_metadata_list: %s" % seq_group_metadata_list)
             # logger.info("[elasticswap] scheduler_outputs: %s" % scheduler_outputs)
 
@@ -1203,6 +1210,27 @@ class LLMEngine:
                         else:
                             seq_group.metrics.cache_ops_time = (
                                 o.cache_ops_time)
+                        
+                        if seq_group.metrics.swap_in_time is not None:
+                            seq_group.metrics.swap_in_time += (
+                                o.swap_in_time or 0)
+                        else:
+                            seq_group.metrics.swap_in_time = (
+                                o.swap_in_time)
+                        
+                        if seq_group.metrics.swap_out_time is not None:
+                            seq_group.metrics.swap_out_time += (
+                                o.swap_out_time or 0)
+                        else:
+                            seq_group.metrics.swap_out_time = (
+                                o.swap_out_time)
+                        
+                        if seq_group.metrics.copy_time is not None:
+                            seq_group.metrics.copy_time += (
+                                o.copy_time or 0)
+                        else:
+                            seq_group.metrics.copy_time = (
+                                o.copy_time)
 
             if self.model_config.runner_type == "pooling":
                 self._process_sequence_group_outputs(seq_group, output)
@@ -1691,6 +1719,9 @@ class LLMEngine:
             len(scheduler.swapped) for scheduler in self.scheduler)
         num_waiting_sys = sum(
             len(scheduler.waiting) for scheduler in self.scheduler)
+        
+        num_waiting_sys += sum(
+            len(scheduler.returning) for scheduler in self.scheduler)
 
         # KV Cache Usage in %
         num_total_gpu = self.cache_config.num_gpu_blocks
@@ -1728,6 +1759,11 @@ class LLMEngine:
         model_forward_time_iter: List[float] = []
         model_execute_time_iter: List[float] = []
         cache_ops_time_iter: List[float] = []
+
+        swap_in_time_iter: List[float] = []
+        swap_out_time_iter: List[float] = []
+        copy_time_iter: List[float] = []
+
         scheduler_time_iter: List[float] = []
         time_prefill_iters: List[float] = []
         time_decode_iters: List[float] = []
@@ -1743,6 +1779,11 @@ class LLMEngine:
         model_forward_time_requests: List[float] = []
         model_execute_time_requests: List[float] = []
         cache_ops_time_requests: List[float] = []
+
+        swap_in_time_requests: List[float] = []
+        swap_out_time_requests: List[float] = []
+        copy_time_requests: List[float] = []
+
         scheduler_time_requests: List[float] = []
         #   Metadata
         num_prompt_tokens_requests: List[int] = []
@@ -1849,6 +1890,11 @@ class LLMEngine:
 
                     llmcall.end_t = now
                     llmcall.swap_t_request = seq_group.metrics.cache_ops_time * 1000
+
+                    llmcall.swap_in_t_request = seq_group.metrics.swap_in_time * 1000
+                    llmcall.swap_out_t_request = seq_group.metrics.swap_out_time * 1000 
+                    llmcall.copy_time_t_request = seq_group.metrics.copy_time * 1000
+
                     llmcall.queue_t_request = seq_group.metrics.time_in_queue
                     llmcall.model_forward_t_request = seq_group.metrics.model_forward_time
                     llmcall.model_exec_t_request = seq_group.metrics.model_execute_time * 1000
@@ -1883,6 +1929,22 @@ class LLMEngine:
                     if seq_group.metrics.cache_ops_time is not None:
                         cache_ops_time_requests.append(
                             seq_group.metrics.cache_ops_time * 1000)
+                    
+                    if seq_group.metrics.swap_in_time is not None:
+                        swap_in_time_requests.append(
+                            seq_group.metrics.swap_in_time * 1000
+                        )
+                    
+                    if seq_group.metrics.swap_out_time is not None:
+                        swap_out_time_requests.append(
+                            seq_group.metrics.swap_out_time * 1000
+                        )
+                    
+                    if seq_group.metrics.copy_time is not None:
+                        copy_time_requests.append(
+                            seq_group.metrics.copy_time * 1000
+                        )
+
                     # Metadata
                     num_prompt_tokens_requests.append(
                         len(seq_group.prompt_token_ids))
@@ -2001,7 +2063,10 @@ class LLMEngine:
                     model_forward_time_iter.append(o.model_forward_time)
                     model_execute_time_iter.append(o.model_execute_time*1000 if o.model_execute_time else 0)
                     cache_ops_time_iter.append(o.cache_ops_time*1000 if o.cache_ops_time else 0)
-        
+                    swap_in_time_iter.append(o.swap_in_time*1000 if o.swap_in_time else 0)
+                    swap_out_time_iter.append(o.swap_out_time*1000 if o.swap_out_time else 0)
+                    copy_time_iter.append(o.copy_time*1000 if o.copy_time else 0)
+
 
         return Stats(
             now=now,
@@ -2029,6 +2094,9 @@ class LLMEngine:
             model_forward_time_iter=model_forward_time_iter,
             model_execute_time_iter=model_execute_time_iter,
             cache_ops_time_iter=cache_ops_time_iter,
+            swap_in_time_iter=swap_in_time_iter,
+            swap_out_time_iter=swap_out_time_iter,
+            copy_time_iter=copy_time_iter,
             scheduler_time_iter=scheduler_time_iter,
 
             # Request stats
@@ -2042,6 +2110,9 @@ class LLMEngine:
             model_forward_time_requests=model_forward_time_requests,
             model_execute_time_requests=model_execute_time_requests,
             cache_ops_time_requests=cache_ops_time_requests,
+            swap_in_time_requests=swap_in_time_requests,
+            swap_out_time_requests=swap_out_time_requests,
+            copy_time_requests=copy_time_requests,
             scheduler_time_requests=scheduler_time_requests,
             #   Metadata
             num_prompt_tokens_requests=num_prompt_tokens_requests,

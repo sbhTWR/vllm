@@ -28,6 +28,11 @@ class RetrifyAgentLLMCall:
     ttft: float = 0.0
     tbts: List[float] = field(default_factory=list)
     swap_t_request: float = 0.0
+    
+    swap_in_t_request: float = 0.0 
+    swap_out_t_request: float = 0.0 
+    copy_time_t_request: float = 0.0 
+
     model_exec_t_request: float = 0.0
     model_forward_t_request: float = 0.0
     sched_t_request: float = 0.0
@@ -70,6 +75,10 @@ class Stats:
     model_forward_time_iter: List[float]
     model_execute_time_iter: List[float]
     cache_ops_time_iter: List[float]
+    swap_in_time_iter: List[float]
+    swap_out_time_iter: List[float]
+    copy_time_iter: List[float]
+
     scheduler_time_iter: List[float]
 
     # Request stats (should have _requests suffix)
@@ -82,7 +91,12 @@ class Stats:
     time_in_queue_requests: List[float]
     model_forward_time_requests: List[float]
     model_execute_time_requests: List[float]
+    
     cache_ops_time_requests: List[float]
+    swap_in_time_requests: List[float]
+    swap_out_time_requests: List[float]
+    copy_time_requests: List[float]
+
     scheduler_time_requests: List[float]
     #   Metadata
     num_prompt_tokens_requests: List[int]

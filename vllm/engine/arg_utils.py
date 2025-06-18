@@ -193,6 +193,7 @@ class EngineArgs:
     disable_async_output_proc: bool = False
     scheduling_policy: Literal["fcfs", "priority"] = "fcfs"
     finished_requests_policy: Literal["default", "pause_recompute", "pause_swap"] = "default"
+    enable_returning_queue: bool = False
     retrify_log_file: str = None
 
     override_neuron_config: Optional[Dict[str, Any]] = None
@@ -948,6 +949,12 @@ class EngineArgs:
             help='TODO')
     
         parser.add_argument(
+            '--enable-returning-queue',
+            type=bool,
+            default=False,
+            help='TODO')
+    
+        parser.add_argument(
             '--retrify-log-file',
             dest="retrify_log_file",
             type=str,
@@ -1289,6 +1296,7 @@ class EngineArgs:
                              and parallel_config.use_ray),
             policy=self.scheduling_policy,
             finished_requests_policy=self.finished_requests_policy,
+            enable_returning_queue=self.enable_returning_queue,
             csv_logger_file_name=self.retrify_log_file,
             evict_token_thresh=self.evict_token_thresh,
             evict_token_count=self.evict_token_count,

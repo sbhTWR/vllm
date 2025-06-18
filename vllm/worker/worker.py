@@ -2,6 +2,7 @@
 """A GPU worker class."""
 import gc
 import os
+import time
 from typing import Dict, List, Optional, Set, Tuple, Type, Union
 
 import torch
@@ -384,17 +385,33 @@ class Worker(LocalOrDistributedWorkerBase):
         # logger.info("[elasticswap] worker_input.blocks_to_swap_in=%s" % worker_input.blocks_to_swap_in)
         # logger.info("[elasticswap] worker_input.blocks_to_swap_out=%s" % worker_input.blocks_to_swap_out)
         # logger.info("[elasticswap] worker_input.blocks_to_copy=%s" % worker_input.blocks_to_copy)
+        torch.cuda.synchronize()
+        swap_in_t_start = time.perf_counter()
         if (worker_input.blocks_to_swap_in is not None
                 and worker_input.blocks_to_swap_in.numel() > 0):
             self.cache_engine[virtual_engine].swap_in(
                 worker_input.blocks_to_swap_in)
+        torch.cuda.synchronize()
+        swap_in_t = time.perf_counter() - swap_in_t_start
+
+        torch.cuda.synchronize()
+        swap_out_t_start = time.perf_counter()
         if (worker_input.blocks_to_swap_out is not None
                 and worker_input.blocks_to_swap_out.numel() > 0):
             self.cache_engine[virtual_engine].swap_out(
                 worker_input.blocks_to_swap_out)
+        torch.cuda.synchronize()
+        swap_out_t = time.perf_counter() - swap_out_t_start
+
+        torch.cuda.synchronize()
+        copy_t_start = time.perf_counter()
         if (worker_input.blocks_to_copy is not None
                 and worker_input.blocks_to_copy.numel() > 0):
             self.cache_engine[virtual_engine].copy(worker_input.blocks_to_copy)
+        torch.cuda.synchronize()
+        copy_t = time.perf_counter() - copy_t_start
+
+        return swap_in_t, swap_out_t, copy_t
 
     def _get_cached_seq_group_metadata(
             self,
