@@ -1018,7 +1018,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             assert refcount == 0
 
         # No longer used
-        assert block.content_hash in self._cached_blocks
+        assert block.content_hash in self._cached_blocks, "content_hash=%s" % block.content_hash
 
         # print("gpu_block_id=%d freed" % block_id)
         # Add the cached block to the evictor
@@ -1030,7 +1030,6 @@ class ElasticSwapBlockAllocator(BlockAllocator):
 
         # Stop tracking the block
         self._untrack_block_id(block_id)
-
         block.block_id = None
 
     def _decr_refcount_hashless_block(self, block: Block) -> None:
@@ -1246,6 +1245,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             # because other sequences in the same batch cannot reuse
             # this block.
             self._cached_blocks[block.content_hash] = block.block_id
+            # logger.info("[elasticswap] adding cached block content_hash=%s" % block.content_hash)
             # Mark this block as touched so that it can be marked as
             # computed after the entire batch of sequences are scheduled.
 

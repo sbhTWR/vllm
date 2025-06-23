@@ -202,7 +202,6 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                      block_id, block.content_hash))
 
         heapq.heapify(new_priority_queue)
-
         self.priority_queue = new_priority_queue
 
     def evict_from_swap_scheduler(self, n):
@@ -235,20 +234,34 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 self._cached_blocks_cpu.pop(block_id)
                 # print('popped block_id=%d' % block_id)
 
-                assert content_hash in gpu_allocator._cached_blocks
+                assert content_hash in gpu_allocator._cached_blocks, "content_hash=%s" % content_hash
 
-                # replace in hash map 
-                gpu_allocator._cached_blocks.pop(content_hash)
-                # remove from block tracker 
-                if block_id in block_tracker:
-                    block_metadata = block_tracker[block_id]
-                    # print('evicting %s' % block_metadata.last_accessed_by_user)
-                    block_tracker.pop(block_id)
-                self._allocators[Device.CPU]._free_block_id(block_id)
 
-                # free the block 
-                num_evicted += 1
+                # evict content_hash only if not swapped-in into gpu 
+                tmp_block_id = gpu_allocator._cached_blocks[content_hash]
 
+                if not self._is_gpu_block_unsafe(tmp_block_id):
+                    # logger.info("[elasticswap] heirarchical_cache: evicting content_hash=%s" 
+                    #                                             % content_hash)
+                    
+                    
+                    # replace in hash map 
+                    gpu_allocator._cached_blocks.pop(content_hash)
+                    # remove from block tracker 
+                    if block_id in block_tracker:
+                        block_metadata = block_tracker[block_id]
+                        # print('evicting %s' % block_metadata.last_accessed_by_user)
+                        block_tracker.pop(block_id)
+                    self._allocators[Device.CPU]._free_block_id(block_id)
+
+                    # free the block 
+                    num_evicted += 1
+                # else:
+                #     logger.info("[elasticswap] heirarchical_cache: NOT evicting content_hash=%s as it is now in GPU cache" 
+                #                                                 % content_hash)
+        
+        # perform a cleanup to ensure no stale blocks are remaining in heap evictor.
+        # self._cleanup_cpu_swap_evictor()
         return num_evicted
 
     def allocate_mutable_block(self,
@@ -338,6 +351,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         assert gpu_allocator._refcounter.get(_block_id) == 0
         assert _block_id == gpu_block_id
 
+        # logger.info("[elasticswap] evicting content_hash=%s" 
+        #             % content_hash_to_evict)
         gpu_allocator._cached_blocks.pop(content_hash_to_evict)
 
         gpu_allocator._refcounter.incr(gpu_block_id)
@@ -349,11 +364,14 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         if cpu_allocator.get_num_free_blocks() == 0:
             # evict cpu block
-            self.evict_from_cpu_swap_evictor(1)
-
+            num_evicted = self.evict_from_cpu_swap_evictor(1)
+            assert num_evicted >= 1, "num_evicted=%s" % num_evicted
+            assert cpu_allocator.get_num_free_blocks() > 0
         # 4. then swap to cpu 
         # allocate a block from cpu 
         cpu_block_id = cpu_allocator._allocate_block_id_unsafe()
+
+        assert cpu_block_id is not None
 
         now = time.time()
         # init the swap process 
@@ -656,9 +674,12 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
     def replace_block_ids_in_cached_allocator(
             self, old_block_id, new_block_id, hash_value, now, block_metadata=None, 
             untrack_old=True):
+        
+        # logger.info("[elasticswap] src (%d)")
+
         gpu_allocator = self._allocators[Device.GPU]
 
-        # replace in hash map 
+        # replace in hash map
         gpu_allocator._cached_blocks[hash_value] = new_block_id
         
         # replace in block tracker
@@ -667,12 +688,13 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         old_block_tracker_obj = block_tracker[old_block_id]
 
-        # logger.info("replacing old_block_id=%d --> new_block_id=%d old block is active = %s user_id=%s" % 
+        # logger.info("replacing old_block_id=%d --> new_block_id=%d old block is active = %s user_id=%s hash_value=%s" % 
         #       (old_block_id, new_block_id,
-        #        old_block_tracker_obj.active, 
-        #        old_block_tracker_obj.last_accessed_by_user))
+        #        old_block_tracker_obj.active,
+        #        old_block_tracker_obj.last_accessed_by_user,
+        #        hash_value))
 
-
+    
         # if block_metadata:
         #     print('last_accessed_by_user=%s' % block_metadata.last_accessed_by_user)
         
@@ -710,6 +732,14 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         if self._is_gpu_block_unsafe(old_block_id):
             assert block_metadata is not None
             self.add_to_cpu_swap_evictor(new_block_id, block_metadata)
+        # else:
+        #     # the old block is a cpu block
+        #     # invalidate any entries in cpu swap evictor 
+        #     if old_block_id in self._cached_blocks_cpu:
+        #         self._cached_blocks_cpu.pop(old_block_id)
+        #         self._cleanup_cpu_swap_evictor()
+
+        
 
     def free(self, block: Block) -> None:
         """Frees the memory occupied by the given block.

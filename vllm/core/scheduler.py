@@ -1014,6 +1014,7 @@ class Scheduler:
     def add_seq_group(self, seq_group: SequenceGroup) -> None:
         # Add sequence groups to the waiting queue.
         if self.scheduler_config.enable_returning_queue and seq_group.returning:
+            logger.info("[elasticswap] adding to returing userid=%s" % seq_group.user_id)
             self.returning.append(seq_group)
         else:
             self.waiting.append(seq_group)

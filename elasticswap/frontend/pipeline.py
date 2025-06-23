@@ -234,13 +234,17 @@ def main():
     # choose everything in variable fashion
     rng = np.random.default_rng(seed=42)
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.1, 0.4, 0.5]
+    rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
-    rates = [0.05]
+    # rates = [0.05]
     # rates = [0.2]
     # rates = [0.2]
     # rates = [0.04]
     # rates = [0.1]
     t = 100
+    enable_returning_queue = True
 
     for rate in rates:
         num_events = int(rate * t)
@@ -263,11 +267,11 @@ def main():
         print('Running experiment for rate=%.2f' % rate)
 
         env = {
-            'CUDA_VISIBLE_DEVICES': '1',
+            'CUDA_VISIBLE_DEVICES': '3',
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-12-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-19-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -297,6 +301,7 @@ def main():
                 'swap_strategy': "swap-hints",
                 'block_allocator': "CpuOffloadingBlockAllocator",
                 'port': 8000,
+                'enable_returning_queue': enable_returning_queue,
             },
 
             {
@@ -316,6 +321,7 @@ def main():
                 'swap_strategy': "swap-lru",
                 'block_allocator': "CpuOffloadingBlockAllocator",
                 'port': 8000,
+                'enable_returning_queue': enable_returning_queue,
             }
         ]
 
