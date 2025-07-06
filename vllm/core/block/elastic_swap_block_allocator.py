@@ -14,6 +14,7 @@ recomputation.
 """
 from collections import deque
 import heapq
+import sys
 import time
 from typing import Deque, Dict, List, Optional, Tuple
 
@@ -25,6 +26,7 @@ from vllm.core.block.naive_block import NaiveBlock, NaiveBlockAllocator
 from vllm.core.block.cpu_gpu_block_allocator import CpuGpuBlockAllocator
 from vllm.core.block.interfaces import Block, DeviceAwareBlockAllocator
 from vllm.core.block.prefix_caching_block import PrefixCachingBlockAllocator, ElasticSwapBlockAllocator, BlockTracker, assert_prefix_caching_block_or_none
+from vllm.config import SwapBudgetType
 from vllm.sequence import SequenceGroup
 from vllm.utils import Device
 from vllm.logger import init_logger
@@ -64,6 +66,9 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         num_cpu_blocks: int,
         block_size: int,
         swap_strategy: SwapStrategy = SwapStrategy.SWAP_LRU,
+        enable_swap_budget: bool = False,
+        swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
+        swap_budget_frac: float = 0.5,
     ) -> DeviceAwareBlockAllocator:
         """Initiate CpuOffloadingBlockAllocator. Similar to 
         CpuGpuBlockAllocator.create() but only support prefix caching
@@ -101,7 +106,10 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             num_blocks=num_gpu_blocks,
             block_size=block_size,
             block_ids=gpu_block_ids,
-            swap_strategy=swap_strategy
+            swap_strategy=swap_strategy,
+            enable_swap_budget=enable_swap_budget,
+            swap_budget_type=swap_budget_type,
+            swap_budget_frac=swap_budget_frac
         )
 
         cpu_allocator: BlockAllocator = NaiveBlockAllocator(
@@ -370,7 +378,6 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         # 4. then swap to cpu 
         # allocate a block from cpu 
         cpu_block_id = cpu_allocator._allocate_block_id_unsafe()
-
         assert cpu_block_id is not None
 
         now = time.time()
@@ -511,7 +518,6 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 # decrement the reference count since it will be incremented 
                 # in immutable allocation 
                 self._allocators[device]._refcounter.decr(gpu_block_id_replacement)
-
                 self.replace_block_ids_in_cached_allocator(
                     _block_id_tmp,
                     gpu_block_id_replacement,
@@ -693,8 +699,40 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         #        old_block_tracker_obj.active,
         #        old_block_tracker_obj.last_accessed_by_user,
         #        hash_value))
+        
+        now = time.time()
+        last_accessed_diff = None 
+        kv_reuse_time_diff = None 
+        if block_metadata:
+            last_accessed_diff = now - block_metadata.last_accessed
+            if block_metadata.reuse_expected_time_s:
+                kv_reuse_time_diff = block_metadata.reuse_expected_time_s - last_accessed_diff
+            
+        else:
+            last_accessed_diff = now - old_block_tracker_obj.last_accessed
+            if old_block_tracker_obj.reuse_expected_time_s:
+                kv_reuse_time_diff = old_block_tracker_obj.reuse_expected_time_s - last_accessed_diff
+            
+        caller = sys._getframe(1).f_code.co_name
+        
+        if self._is_gpu_block_unsafe(old_block_id):
+            logger.info("[caller=%s] swapping_out old_block_id=%d new_block_id=%d user_id=%s hash_value=%s last_accessed_diff=%s kv_reuse_time_diff=%s" % 
+                (caller, old_block_id, new_block_id,
+                old_block_tracker_obj.last_accessed_by_user,
+                hash_value,
+                last_accessed_diff,
+                kv_reuse_time_diff
+                ))
+        else:
+            logger.info("[caller=%s] swapping_in old_block_id=%d new_block_id=%d user_id=%s hash_value=%s last_accessed_diff=%s kv_reuse_time_diff=%s" % 
+                (caller, old_block_id, new_block_id,
+                old_block_tracker_obj.last_accessed_by_user,
+                hash_value,
+                last_accessed_diff,
+                kv_reuse_time_diff
+                ))
+        
 
-    
         # if block_metadata:
         #     print('last_accessed_by_user=%s' % block_metadata.last_accessed_by_user)
         
@@ -844,6 +882,9 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 dst = self._get_physical_block_id_unsafe(dst)
                 blocks_to_swap_in.append((src, dst))
         self._swap_mapping.clear()
+
+        # logger.info("[elasticswap] blocks_to_swap_out=%s blocks_to_swap_in=%s" 
+        #             % (len(blocks_to_swap_out), len(blocks_to_swap_in)))
         return blocks_to_swap_out, blocks_to_swap_in
 
     def will_swap_in_cpu_blocks(self):

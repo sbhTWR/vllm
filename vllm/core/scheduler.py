@@ -2,6 +2,7 @@
 
 import enum
 import heapq
+import math
 import os
 import random
 import time
@@ -33,7 +34,6 @@ ENABLE_ARTIFICIAL_PREEMPT = bool(
     os.getenv("VLLM_TEST_ENABLE_ARTIFICIAL_PREEMPT", False))  # noqa
 ARTIFICIAL_PREEMPTION_PROB = 0.5
 ARTIFICIAL_PREEMPTION_MAX_CNT = 500
-
 
 class PreemptionMode(enum.Enum):
     """Preemption modes.
@@ -883,7 +883,6 @@ class SwapScheduler:
 
 
 class Scheduler:
-
     def __init__(
         self,
         scheduler_config: SchedulerConfig,
@@ -923,7 +922,11 @@ class Scheduler:
             sliding_window=self.cache_config.sliding_window,
             enable_caching=self.cache_config.enable_prefix_caching,
             block_allocator=self.cache_config.block_allocator,
-            swap_strategy=self.cache_config.swap_strategy)
+            swap_strategy=self.cache_config.swap_strategy,
+            enable_swap_budget=self.scheduler_config.enable_swap_budget,
+            swap_budget_type=self.scheduler_config.swap_budget_type,
+            swap_budget_frac=self.scheduler_config.swap_budget_frac,
+            )
 
         # Sequence groups in the WAITING state.
         # Contain new prefill or preempted requests.
@@ -997,6 +1000,12 @@ class Scheduler:
 
         self.evict_token_thresh = self.scheduler_config.evict_token_thresh
         self.evict_token_count = self.scheduler_config.evict_token_count
+
+        self.enable_swap_budget = self.scheduler_config.enable_swap_budget
+        self.swap_budget_type = self.scheduler_config.swap_budget_type
+        self.swap_budget_frac = self.scheduler_config.swap_budget_frac
+        # self.swap_budget_blocks = int(self.swap_budget_tokens / self.cache_config.block_size) + 1
+        # self.gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
 
     @property
     def next_cache_id(self):
@@ -2212,9 +2221,7 @@ class Scheduler:
         # Return results
 
         scheduler_outputs.scheduler_time = scheduler_time * 1000
-
         # logger.info("[log_es] scheduler_time=%f" % scheduler_outputs.scheduler_time)
-
         return (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc)
 

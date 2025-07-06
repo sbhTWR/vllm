@@ -564,6 +564,7 @@ class CsvStatLogger(StatLoggerBase):
                    "model_exec_t_requests", "sched_t_requests",
                    "swap_t_iter", "swap_in_t_iter", "swap_out_t_iter", "copy_t_iter",
                    "model_forward_t_iter", "model_exec_t_iter", "sched_t_iter",
+                   "gpu_cache_hit_rate", "cpu_cache_hit_rate"
                    ]
 
         self.log_csv.writerow(header)
@@ -764,7 +765,9 @@ class CsvStatLogger(StatLoggerBase):
                    swap_t, swap_in_t, swap_out_t, copy_t,
                    queue_t, model_forward_t, model_exec_t, sched_t,
                    swap_t_iter, swap_in_t_iter, swap_out_t_iter, copy_t_iter,
-                   model_forward_t_iter, model_exec_t_iter, sched_t_iter]
+                   model_forward_t_iter, model_exec_t_iter, sched_t_iter,
+                   stats.gpu_prefix_cache_hit_rate * 100, stats.cpu_prefix_cache_hit_rate * 100
+                   ]
 
             self.log_csv.writerow(row)
             self.file_handle.flush()

@@ -23,6 +23,7 @@ from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.transformers_utils.utils import check_gguf_file
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import FlexibleArgumentParser, StoreBoolean
+from vllm.config import SwapBudgetType
 
 if TYPE_CHECKING:
     from vllm.transformers_utils.tokenizer_group import BaseTokenizerGroup
@@ -209,6 +210,13 @@ class EngineArgs:
     model_impl: str = "auto"
 
     calculate_kv_scales: Optional[bool] = None
+
+    # define swap budget 
+    enable_swap_budget: bool = False 
+    swap_budget_type: Optional[SwapBudgetType] = SwapBudgetType.FIXED
+    swap_budget_frac: Optional[float] = 0.5
+    
+
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -954,6 +962,25 @@ class EngineArgs:
             default=False,
             help='TODO')
     
+        # swapping budget 
+        parser.add_argument(
+            '--enable-swap-budget',
+            type=bool,
+            default=False,
+            help='TODO')
+
+        parser.add_argument(
+            '--swap-budget-frac',
+            type=float,
+            default=0.5,
+            help='TODO')
+    
+        parser.add_argument(
+            '--swap-budget-type',
+            choices=["fixed", "variable"],
+            default="fixed",
+            help='TODO')
+
         parser.add_argument(
             '--retrify-log-file',
             dest="retrify_log_file",
@@ -1300,6 +1327,9 @@ class EngineArgs:
             csv_logger_file_name=self.retrify_log_file,
             evict_token_thresh=self.evict_token_thresh,
             evict_token_count=self.evict_token_count,
+            enable_swap_budget=self.enable_swap_budget,
+            swap_budget_type=self.swap_budget_type,
+            swap_budget_frac=self.swap_budget_frac,
             )
         lora_config = LoRAConfig(
             bias_enabled=self.enable_lora_bias,

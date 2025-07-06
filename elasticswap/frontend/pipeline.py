@@ -235,8 +235,9 @@ def main():
     rng = np.random.default_rng(seed=42)
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
-    # rates = [0.1, 0.4, 0.5]
-    rates = [0.5]
+    # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    rates = [0.3]
+    # rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
     # rates = [0.05]
     # rates = [0.2]
@@ -245,6 +246,9 @@ def main():
     # rates = [0.1]
     t = 100
     enable_returning_queue = True
+    enable_swap_budget = True
+    swap_budget_type = "fixed"
+    swap_budget_frac = 0.1
 
     for rate in rates:
         num_events = int(rate * t)
@@ -271,7 +275,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-19-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-30-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -293,7 +297,7 @@ def main():
                 'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
                 'tp_size': 1, 
                 'pp_size': 1, 
-                'swap_space': 100,
+                'swap_space': 500,
                 'evict_token_thresh': 1000000,
                 'evict_token_count': 10000,
                 'enable_chunked_prefill': False,
@@ -302,6 +306,9 @@ def main():
                 'block_allocator': "CpuOffloadingBlockAllocator",
                 'port': 8000,
                 'enable_returning_queue': enable_returning_queue,
+                'enable_swap_budget': enable_swap_budget,
+                'swap_budget_type': swap_budget_type,
+                'swap_budget_frac': swap_budget_frac,
             },
 
             {
@@ -313,7 +320,7 @@ def main():
                 'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
                 'tp_size': 1, 
                 'pp_size': 1, 
-                'swap_space': 100,
+                'swap_space': 500,
                 'evict_token_thresh': 1000000,
                 'evict_token_count': 10000,
                 'enable_chunked_prefill': False,
@@ -322,6 +329,9 @@ def main():
                 'block_allocator': "CpuOffloadingBlockAllocator",
                 'port': 8000,
                 'enable_returning_queue': enable_returning_queue,
+                'enable_swap_budget': enable_swap_budget,
+                'swap_budget_type': swap_budget_type,
+                'swap_budget_frac': swap_budget_frac,
             }
         ]
 

@@ -1898,6 +1898,7 @@ class LLMEngine:
                     llmcall.queue_t_request = seq_group.metrics.time_in_queue
                     llmcall.model_forward_t_request = seq_group.metrics.model_forward_time
                     llmcall.model_exec_t_request = seq_group.metrics.model_execute_time * 1000
+                    llmcall.sched_t_request = seq_group.metrics.scheduler_time
 
                     assert agent.active_llm_calls > 0
                     agent.active_llm_calls -= 1

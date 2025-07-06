@@ -13,6 +13,7 @@ from vllm.core.block.interfaces import (Block, BlockAllocator, BlockId, Device,
 from vllm.core.block.naive_block import (BlockPool, NaiveBlock,
                                          NaiveBlockAllocator)
 from vllm.core.evictor import EvictionPolicy, Evictor, make_evictor, SwapStrategy, FreeBlockSwapScheduler
+from vllm.config import SwapBudgetType
 from vllm.logger import init_logger
 from vllm.sequence import Sequence
 
@@ -746,6 +747,9 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         block_ids: Optional[Iterable[int]] = None,
         eviction_policy: EvictionPolicy = EvictionPolicy.LRU,
         swap_strategy: SwapStrategy = SwapStrategy.SWAP_LRU,
+        enable_swap_budget: bool = False,
+        swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
+        swap_budget_frac: float = 0.5,
     ):
         if block_ids is None:
             block_ids = range(num_blocks)
@@ -798,6 +802,10 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         self.metric_data = CacheMetricData()
         self.swap_scheduler = FreeBlockSwapScheduler(swap_strategy=swap_strategy)
 
+        self.enable_swap_budget = enable_swap_budget
+        self.swap_budget_type = swap_budget_type
+        self.swap_budget_frac = swap_budget_frac
+
     # Implements Block.Factory.
     def _create_block(
         self,
@@ -821,6 +829,13 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             computed=computed,
             extra_hash=extra_hash,
         )
+
+    # def get_swap_budget(self):
+    #     return self.current_swap_budget_blocks
+    
+    # def set_swap_budget(self, num_blocks: int):
+    #     self.enable_swap_budget = True
+    #     self.current_swap_budget_blocks = num_blocks
 
     def add_to_swap_scheduler(self, block_id, block_metadata):
         self.swap_scheduler.add(
@@ -1150,8 +1165,27 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         assert device is None
         # The number of free blocks is the number of hashless free blocks
         # plus the number of blocks evictor could free from its list.
-        return self._hashless_allocator.get_num_free_blocks(
-        ) + self.swap_scheduler.num_blocks
+        if self.enable_swap_budget:
+            num_free_blocks = self._hashless_allocator.get_num_free_blocks(
+            ) + int(self.swap_budget_frac * self.swap_scheduler.num_blocks)
+
+            num_hashless = self._hashless_allocator.get_num_free_blocks()
+            num_swap_evictor = self.swap_scheduler.num_blocks
+
+            # logger.info("[num_free_blocks] swap_budget_enabled=True num_free=%d frac=%s num_hashless=%s num_swap_evictor=%s" 
+            #             % (num_free_blocks, self.swap_budget_frac, num_hashless, num_swap_evictor))
+        else:
+            num_free_blocks = self._hashless_allocator.get_num_free_blocks(
+            ) + self.swap_scheduler.num_blocks
+
+            num_hashless = self._hashless_allocator.get_num_free_blocks()
+            num_swap_evictor = self.swap_scheduler.num_blocks
+
+            # logger.info("[num_free_blocks] swap_budget_enabled=False num_free=%d frac=%s num_hashless=%s num_swap_evictor=%s" 
+            #             % (num_free_blocks, self.swap_budget_frac, num_hashless, num_swap_evictor))
+
+        return num_free_blocks
+        
 
     def get_num_total_blocks(self) -> int:
         return self._hashless_allocator.get_num_total_blocks()

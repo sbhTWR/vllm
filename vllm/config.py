@@ -1462,6 +1462,10 @@ class ParallelConfig:
                              "run with Ray.")
 
 
+class SwapBudgetType(enum.Enum):
+    FIXED = enum.auto()
+    VARIABLE = enum.auto()
+
 @dataclass
 class SchedulerConfig:
     """Scheduler configuration."""
@@ -1542,6 +1546,10 @@ class SchedulerConfig:
 
     enable_returning_queue: bool = False
 
+    # define swap-budget
+    enable_swap_budget: bool = True
+    swap_budget_type: str = "fixed"
+    swap_budget_frac: int = 0.5
 
     def compute_hash(self) -> str:
         """
@@ -1601,6 +1609,17 @@ class SchedulerConfig:
                 self.max_num_batched_tokens)
 
         self.chunked_prefill_enabled = self.enable_chunked_prefill
+
+        if self.enable_swap_budget:
+            if self.swap_budget_type == "fixed":
+                self.swap_budget_type = SwapBudgetType.FIXED
+            elif self.swap_budget_type == 'variable':
+                # temporary
+                ValueError('variable budget is not implemented!')
+                self.swap_budget_type = SwapBudgetType.VARIABLE
+            else:
+                ValueError("invalid swap_budget type %s" % self.swap_budget_type)
+
         self._verify_args()
 
     def _verify_args(self) -> None:
