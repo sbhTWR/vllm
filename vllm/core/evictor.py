@@ -3,6 +3,7 @@
 import enum
 import heapq
 from abc import ABC, abstractmethod
+import time
 from typing import Dict, List, Tuple
 from vllm.logger import init_logger
 
@@ -89,7 +90,7 @@ class FreeBlockSwapScheduler:
         return block_id in self.free_table
 
 
-    def evict(self) -> Tuple[int, BlockMetaData]:
+    def evict(self, cache_pin_ttl=None) -> Tuple[int, BlockMetaData]:
         if len(self.free_table) == 0:
             raise ValueError("No usable cache memory left")
 
@@ -113,10 +114,20 @@ class FreeBlockSwapScheduler:
                     return block_id, block_metadata
                 
             elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
-                reuse_expected_time, last_accessed, _, block_id, content_hash = heapq.heappop(
+                reuse_expected_time, last_accessed, num_hashed_tokens, block_id, content_hash = heapq.heappop(
                     self.priority_queue)
                 if (block_id in self.free_table and
                         self.free_table[block_id].last_accessed == last_accessed):
+                    
+                    delta = abs(reuse_expected_time) - time.time()
+
+                    if cache_pin_ttl and delta < cache_pin_ttl:
+                        # restore the block in evictor 
+                        heapq.heappush(
+                            self.priority_queue,
+                            (reuse_expected_time, last_accessed, num_hashed_tokens, block_id, content_hash))
+                        return None, None
+
                     block_metadata = self.free_table[block_id]
                     self.free_table.pop(block_id)
                     return block_id, block_metadata

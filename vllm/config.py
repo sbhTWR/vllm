@@ -1076,6 +1076,7 @@ class CacheConfig:
         calculate_kv_scales: Optional[bool] = None,
         block_allocator: str = "CpuGpuBlockAllocator",
         swap_strategy: str = "swap-lru",
+        cache_pin_ttl: Optional[int] = None,
     ) -> None:
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -1089,6 +1090,7 @@ class CacheConfig:
         self.calculate_kv_scales = calculate_kv_scales
         self.block_allocator = block_allocator
         self.swap_strategy = swap_strategy
+        self.cache_pin_ttl = cache_pin_ttl
         self._verify_args()
         self._verify_cache_dtype()
         self._verify_prefix_caching()
@@ -1133,6 +1135,9 @@ class CacheConfig:
             self.swap_strategy = SwapStrategy.SWAP_LRU
         elif self.swap_strategy == "swap-hints":
             self.swap_strategy = SwapStrategy.SWAP_HINTS
+        
+        if self.cache_pin_ttl == None:
+            self.cache_pin_ttl = -1 
 
     def _verify_cache_dtype(self) -> None:
         if self.cache_dtype == "auto":
@@ -1541,6 +1546,7 @@ class SchedulerConfig:
 
     csv_logger_file_name: str = "vllm_retrify_log.csv"
 
+    enable_eager_evict: bool = False
     evict_token_thresh: int = 1e6
     evict_token_count: int = 10000
 

@@ -155,13 +155,15 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         self.allocation_ctx = AllocationContext()
 
-    def memory_pressure_evict(self, n):
+    def memory_pressure_evict(self, n, cache_pin_ttl=None):
         # if self._allocators[Device.GPU].swap_scheduler.swap_strategy == SwapStrategy.PERSIST:
         #     self.evict_from_swap_scheduler(n)
         # else:
         #     self.evict_from_cpu_swap_evictor(n)
 
-        return None
+        # self.evict_from_swap_scheduler(n)
+        num_evicted_blocks = self.evict_heirarchical_cache(n, cache_pin_ttl=cache_pin_ttl)
+        return num_evicted_blocks
 
     def add_to_cpu_swap_evictor(self, block_id, block_metadata: BlockMetaData):
         self._cached_blocks_cpu[block_id] = block_metadata
@@ -211,6 +213,75 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
 
         heapq.heapify(new_priority_queue)
         self.priority_queue = new_priority_queue
+
+    def evict_heirarchical_cache(self, n, cache_pin_ttl=None):
+        num_evicted_blocks = 0
+
+        while num_evicted_blocks < n:
+            gpu_allocator: ElasticSwapBlockAllocator = self._allocators[Device.GPU]
+            cpu_allocator: NaiveBlockAllocator = self._allocators[Device.CPU]
+            swap_scheduler: FreeBlockSwapScheduler = gpu_allocator.swap_scheduler
+
+            gpu_block_id = None 
+            block_metadata = None
+            if swap_scheduler.num_blocks > 0:
+                gpu_block_id, block_metadata = swap_scheduler.evict(cache_pin_ttl=cache_pin_ttl)
+                # logger.info(">>>> gpu_block_id=%d evicted from swap scheduler. user_id=%s" 
+                #             % (gpu_block_id, block_metadata.last_accessed_by_user))
+                if not gpu_block_id:
+                    break
+            else:
+                break
+
+            # 2.a -- perform book-keeping on the block
+            content_hash_to_evict = block_metadata.content_hash
+            # Sanity checks
+            assert content_hash_to_evict in gpu_allocator._cached_blocks
+            _block_id = gpu_allocator._cached_blocks[content_hash_to_evict]
+            assert gpu_allocator._refcounter.get(_block_id) == 0
+            assert _block_id == gpu_block_id
+
+            # logger.info("[elasticswap] evicting content_hash=%s" 
+            #             % content_hash_to_evict)
+            gpu_allocator._cached_blocks.pop(content_hash_to_evict)
+
+            gpu_allocator._refcounter.incr(gpu_block_id)
+            gpu_allocator._track_block_id(gpu_block_id, computed=False)
+
+
+            # 3. check if there is space in CPU cache for swapping out 
+                # if not, evict from cpu 
+
+            if cpu_allocator.get_num_free_blocks() == 0:
+                # evict cpu block
+                num_evicted = self.evict_from_cpu_swap_evictor(1)
+                assert num_evicted >= 1, "num_evicted=%s" % num_evicted
+                assert cpu_allocator.get_num_free_blocks() > 0
+            # 4. then swap to cpu 
+            # allocate a block from cpu 
+            cpu_block_id = cpu_allocator._allocate_block_id_unsafe()
+            assert cpu_block_id is not None
+
+            now = time.time()
+            # init the swap process 
+            self.replace_block_ids_in_cached_allocator(
+                    gpu_block_id,
+                    cpu_block_id,
+                    block_metadata.content_hash,
+                    now,
+                    block_metadata,
+                    untrack_old=True
+                )
+
+            # schedule swap
+            self._swap_mapping[gpu_block_id] = cpu_block_id
+
+            # free the gpu block_id to hashless allocator 
+            gpu_allocator._hashless_allocator._free_block_id(gpu_block_id)
+            num_evicted_blocks += 1
+        
+        return num_evicted_blocks
+
 
     def evict_from_swap_scheduler(self, n):
         num_evicted = self._allocators[Device.GPU].evict_n_from_swap_scheduler(n)
@@ -883,8 +954,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 blocks_to_swap_in.append((src, dst))
         self._swap_mapping.clear()
 
-        # logger.info("[elasticswap] blocks_to_swap_out=%s blocks_to_swap_in=%s" 
-        #             % (len(blocks_to_swap_out), len(blocks_to_swap_in)))
+        logger.info("[elasticswap] blocks_to_swap_out=%s blocks_to_swap_in=%s" 
+                    % (len(blocks_to_swap_out), len(blocks_to_swap_in)))
         return blocks_to_swap_out, blocks_to_swap_in
 
     def will_swap_in_cpu_blocks(self):

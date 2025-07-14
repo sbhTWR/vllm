@@ -114,8 +114,12 @@ class EngineArgs:
     max_parallel_loading_workers: Optional[int] = None
     block_allocator: str = "CpuGpuBlockAllocator"
     swap_strategy: str = "swap_all"
+
+    enable_eager_evict: bool = False
     evict_token_thresh: int = 1e6
     evict_token_count: int = 10000
+    
+
     block_size: Optional[int] = None
     enable_prefix_caching: Optional[bool] = False
     disable_sliding_window: bool = False
@@ -216,7 +220,9 @@ class EngineArgs:
     swap_budget_type: Optional[SwapBudgetType] = SwapBudgetType.FIXED
     swap_budget_frac: Optional[float] = 0.5
     
-
+    # define cache ttl 
+    cache_pin_ttl: Optional[int] = -1
+    
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -459,6 +465,13 @@ class EngineArgs:
             default='swap-hints',
             choices=['persist', 'swap-lru', 'swap-hints'],
             help='.')
+        
+        # parser.add_argument(
+        #     '--enable-eager-evict',
+        #     type=bool,
+        #     default=False,
+        #     help='.')
+
         parser.add_argument(
             '--evict-token-thresh',
             type=int,
@@ -963,11 +976,19 @@ class EngineArgs:
             help='TODO')
     
         # swapping budget 
+        # parser.add_argument(
+        #     '--enable-swap-budget',
+        #     type=bool,
+        #     default=False,
+        #     help='TODO')
+        
         parser.add_argument(
             '--enable-swap-budget',
-            type=bool,
+            action=StoreBoolean,
             default=False,
-            help='TODO')
+            nargs="?",
+            const="True",
+            help='.')
 
         parser.add_argument(
             '--swap-budget-frac',
@@ -980,6 +1001,27 @@ class EngineArgs:
             choices=["fixed", "variable"],
             default="fixed",
             help='TODO')
+        
+        parser.add_argument(
+            '--cache-pin-ttl',
+            type=int,
+            default=None,
+            help='TODO')
+        
+        # parser.add_argument(
+        #     '--enable-eager-evict',
+        #     type=bool,
+        #     default=False,
+        #     help='TODO'
+        # )
+
+        parser.add_argument(
+            '--enable-eager-evict',
+            action=StoreBoolean,
+            default=False,
+            nargs="?",
+            const="True",
+            help='.')
 
         parser.add_argument(
             '--retrify-log-file',
@@ -1185,6 +1227,7 @@ class EngineArgs:
             calculate_kv_scales=self.calculate_kv_scales,
             block_allocator=self.block_allocator,
             swap_strategy=self.swap_strategy,
+            cache_pin_ttl=self.cache_pin_ttl,
         )
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,
@@ -1325,6 +1368,7 @@ class EngineArgs:
             finished_requests_policy=self.finished_requests_policy,
             enable_returning_queue=self.enable_returning_queue,
             csv_logger_file_name=self.retrify_log_file,
+            enable_eager_evict=self.enable_eager_evict,
             evict_token_thresh=self.evict_token_thresh,
             evict_token_count=self.evict_token_count,
             enable_swap_budget=self.enable_swap_budget,

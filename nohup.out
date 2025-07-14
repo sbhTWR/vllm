@@ -27486,3 +27486,4 @@ Traceback (most recent call last):
   File "/vllm/vllm/pipeline.py", line 113, in run_async
     raise ValueError(f"Timeout in laucnhing vLLM")
 ValueError: Timeout in laucnhing vLLM
+Killed process python3 running on port 8000

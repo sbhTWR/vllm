@@ -998,8 +998,10 @@ class Scheduler:
             scheduler=self
         )
 
+        self.enable_eager_evict = self.scheduler_config.enable_eager_evict
         self.evict_token_thresh = self.scheduler_config.evict_token_thresh
         self.evict_token_count = self.scheduler_config.evict_token_count
+        self.cache_pin_ttl = self.cache_config.cache_pin_ttl
 
         self.enable_swap_budget = self.scheduler_config.enable_swap_budget
         self.swap_budget_type = self.scheduler_config.swap_budget_type
@@ -1164,17 +1166,23 @@ class Scheduler:
         return finished_requests_ids
 
     def memory_pressure_evict_if_necessary(self):
-        
+        if not self.enable_eager_evict:
+            return
+
         num_tokens_waiting = 0
 
         for seq_group in self.waiting:
             seq = seq_group.first_seq
             toks = seq.get_token_ids()
+
             num_tokens_waiting += len(toks)
         
-        if num_tokens_waiting > self.evict_token_thresh:
+        if num_tokens_waiting >= self.evict_token_thresh:
             num_blocks_to_evict = self.evict_token_count / self.block_manager.block_size
-            self.block_manager.block_allocator.memory_pressure_evict(num_blocks_to_evict)
+            self.block_manager.block_allocator.memory_pressure_evict(
+                num_blocks_to_evict,
+                cache_pin_ttl=self.cache_pin_ttl
+            )
 
     def _schedule_running(
         self,
@@ -1852,6 +1860,9 @@ class Scheduler:
         
         # logger.info("[elasticswap] block_allocator=%s" % self.cache_config.block_allocator)
         if self.cache_config.block_allocator != "CpuGpuBlockAllocator":
+            
+            self.memory_pressure_evict_if_necessary()
+
             new_swap_out, new_swap_in = \
                     self.block_manager.get_and_reset_swaps(time.time())
             for src, dst in new_swap_out:
@@ -1859,7 +1870,7 @@ class Scheduler:
             for src, dst in new_swap_in:
                 elastic_swap_blocks_to_swap_in.extend((src, dst))
 
-            self.memory_pressure_evict_if_necessary()
+            
 
         sched_outputs = SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
