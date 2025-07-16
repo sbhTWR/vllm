@@ -1009,6 +1009,9 @@ class Scheduler:
         # self.swap_budget_blocks = int(self.swap_budget_tokens / self.cache_config.block_size) + 1
         # self.gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
 
+        self.resolve_deadlock = False
+
+
     @property
     def next_cache_id(self):
         return (self.cache_id + 1) % self.num_cache_iters
@@ -1029,6 +1032,10 @@ class Scheduler:
             self.returning.append(seq_group)
         else:
             self.waiting.append(seq_group)
+
+
+    def _get_num_cached_blocks(self, seq_group: SequenceGroup):
+        return self.block_manager.get_num_cached_blocks(seq_group)
 
     def update_seq_group(self, new_seq_group: SequenceGroup, 
                             seq_group: SequenceGroup,
@@ -1169,20 +1176,52 @@ class Scheduler:
         if not self.enable_eager_evict:
             return
 
-        num_tokens_waiting = 0
+        if self.resolve_deadlock:
+            # release memory for resolving deadlock 
+            # count number of blocks needed in total for first 
+            # request in waiting and first request in returning 
+            
+            logger.info("[elasticswap] deadlock resolution invoked; waiting=%d returning=%d running=%d" 
+                        % (len(self.waiting), len(self.returning), len(self.running)))
 
-        for seq_group in self.waiting:
-            seq = seq_group.first_seq
-            toks = seq.get_token_ids()
+            num_tokens_needed = 0
 
-            num_tokens_waiting += len(toks)
-        
-        if num_tokens_waiting >= self.evict_token_thresh:
-            num_blocks_to_evict = self.evict_token_count / self.block_manager.block_size
+            if self.returning:
+                seq_group = self.returning[0]
+                seq = seq_group.first_seq
+                toks = seq.get_token_ids()
+                num_tokens_needed += len(toks)
+
+            if self.waiting:
+                seq_group = self.waiting[0]
+                seq = seq_group.first_seq
+                toks = seq.get_token_ids()
+                num_tokens_needed += len(toks)
+
+            num_blocks_to_evict = int(num_tokens_needed / self.block_manager.block_size)
+            logger.info("[elasticswap] evicting %d blocks for deadlock resolution" % num_blocks_to_evict)
+
             self.block_manager.block_allocator.memory_pressure_evict(
                 num_blocks_to_evict,
-                cache_pin_ttl=self.cache_pin_ttl
+                cache_pin_ttl=-9999999 # -1 for ignoring ttl 
             )
+
+            self.resolve_deadlock = False
+
+        else:
+            num_tokens_waiting = 0
+            for seq_group in self.waiting:
+                seq = seq_group.first_seq
+                toks = seq.get_token_ids()
+
+                num_tokens_waiting += len(toks)
+            
+            if num_tokens_waiting >= self.evict_token_thresh:
+                num_blocks_to_evict = self.evict_token_count / self.block_manager.block_size
+                self.block_manager.block_allocator.memory_pressure_evict(
+                    num_blocks_to_evict,
+                    cache_pin_ttl=self.cache_pin_ttl
+                )
 
     def _schedule_running(
         self,
@@ -1768,6 +1807,16 @@ class Scheduler:
 
         # If any requests are swapped, prioritized swapped requests.
         if not self.swapped:
+            """
+            elasticswap: sort the returning queue 
+            """
+            if self.cache_config.block_allocator != "CpuGpuBlockAllocator":
+                self.returning = deque(
+                 sorted(self.returning, 
+                    key=lambda group: self._get_num_cached_blocks(group), 
+                    reverse=True)
+                )
+
             prefills_returning = self._schedule_prefills(budget,
                                                curr_loras,
                                                enable_chunking=False,
@@ -2079,7 +2128,6 @@ class Scheduler:
         # This function call changes the internal states of the scheduler
         # such as self.running, self.swapped, and self.waiting.
         scheduler_start_time = time.perf_counter()
-
         scheduler_outputs: SchedulerOutputs = self._schedule()
         now = time.time()
 

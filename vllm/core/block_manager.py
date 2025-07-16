@@ -140,8 +140,25 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         self._last_access_blocks_tracker = LastAccessBlocksTracker(
             self.block_allocator)
 
+    def get_num_cached_blocks(self, seq_group: SequenceGroup):
+        
+        # logger.info("[elasticswap] num_seqs=%d" % len(seq_group.seqs))
+        # for seq in seq_group.seqs:
+        #     logger.info("[elasticswap] seq_status=%s" % seq.status)
+
+        seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
+        assert isinstance(self.block_allocator, CpuOffloadingBlockAllocator)
+        token_ids_chunked = chunk_list(seq.get_token_ids(), self.block_size)
+        num_cached_blocks = self.block_allocator.num_blocks_cached_for_token_ids(
+                                                prev_block=None,
+                                                block_token_ids=token_ids_chunked,
+                                            )
+
+        assert num_cached_blocks >= 0
+        return num_cached_blocks
+
     def get_num_required_blocks_prefix_aware(
-                                self, 
+                                self,
                                 token_ids: List[int],
                                 block_size: int,
                                 num_lookahead_slots: int = 0) -> int:
@@ -160,6 +177,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                                             )
 
         assert total_uncached_blocks_required >= num_cached_blocks
+        # logger.info("[elasticswap] total=%d cached=%d" 
+        #             % (total_uncached_blocks_required, num_cached_blocks))
         return total_uncached_blocks_required - num_cached_blocks
 
     def can_allocate(self,
@@ -176,18 +195,18 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
 
-        # if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
-        #     num_required_blocks = self.get_num_required_blocks_prefix_aware(
-        #         seq.get_token_ids(),
-        #         block_size=self.block_size,
-        #         num_lookahead_slots=num_lookahead_slots,
-        #     )
-        # else:
-        num_required_blocks = BlockTable.get_num_required_blocks(
-            seq.get_token_ids(),
-            block_size=self.block_size,
-            num_lookahead_slots=num_lookahead_slots,
-        )
+        if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
+            num_required_blocks = self.get_num_required_blocks_prefix_aware(
+                seq.get_token_ids(),
+                block_size=self.block_size,
+                num_lookahead_slots=num_lookahead_slots,
+            )
+        else:
+            num_required_blocks = BlockTable.get_num_required_blocks(
+                seq.get_token_ids(),
+                block_size=self.block_size,
+                num_lookahead_slots=num_lookahead_slots,
+            )
 
         if seq_group.is_encoder_decoder():
             encoder_seq = seq_group.get_encoder_seq()

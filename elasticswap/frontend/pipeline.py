@@ -271,11 +271,11 @@ def main():
         print('Running experiment for rate=%.2f' % rate)
 
         env = {
-            'CUDA_VISIBLE_DEVICES': '6',
+            'CUDA_VISIBLE_DEVICES': '5',
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-31-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-41-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -298,8 +298,8 @@ def main():
             #     'tp_size': 1, 
             #     'pp_size': 1, 
             #     'swap_space': 500,
-            #     'evict_token_thresh': 0,
-            #     'evict_token_count': 40000,
+            #     'evict_token_thresh': 750000,
+            #     'evict_token_count': 30000,
             #     'enable_chunked_prefill': False,
             #     'fr_policy': "default",
             #     'swap_strategy': "swap-hints",
@@ -310,7 +310,7 @@ def main():
             #     'swap_budget_type': "fixed",
             #     'swap_budget_frac': 0.0,
             #     'enable_eager_evict': True,
-            #     'cache_pin_ttl': 5
+            #     'cache_pin_ttl': 12
             # },
 
             {

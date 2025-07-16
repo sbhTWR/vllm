@@ -786,22 +786,22 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             
         caller = sys._getframe(1).f_code.co_name
         
-        if self._is_gpu_block_unsafe(old_block_id):
-            logger.info("[caller=%s] swapping_out old_block_id=%d new_block_id=%d user_id=%s hash_value=%s last_accessed_diff=%s kv_reuse_time_diff=%s" % 
-                (caller, old_block_id, new_block_id,
-                old_block_tracker_obj.last_accessed_by_user,
-                hash_value,
-                last_accessed_diff,
-                kv_reuse_time_diff
-                ))
-        else:
-            logger.info("[caller=%s] swapping_in old_block_id=%d new_block_id=%d user_id=%s hash_value=%s last_accessed_diff=%s kv_reuse_time_diff=%s" % 
-                (caller, old_block_id, new_block_id,
-                old_block_tracker_obj.last_accessed_by_user,
-                hash_value,
-                last_accessed_diff,
-                kv_reuse_time_diff
-                ))
+        # if self._is_gpu_block_unsafe(old_block_id):
+        #     logger.info("[caller=%s] swapping_out old_block_id=%d new_block_id=%d user_id=%s hash_value=%s last_accessed_diff=%s kv_reuse_time_diff=%s" % 
+        #         (caller, old_block_id, new_block_id,
+        #         old_block_tracker_obj.last_accessed_by_user,
+        #         hash_value,
+        #         last_accessed_diff,
+        #         kv_reuse_time_diff
+        #         ))
+        # else:
+        #     logger.info("[caller=%s] swapping_in old_block_id=%d new_block_id=%d user_id=%s hash_value=%s last_accessed_diff=%s kv_reuse_time_diff=%s" % 
+        #         (caller, old_block_id, new_block_id,
+        #         old_block_tracker_obj.last_accessed_by_user,
+        #         hash_value,
+        #         last_accessed_diff,
+        #         kv_reuse_time_diff
+        #         ))
         
 
         # if block_metadata:
@@ -954,8 +954,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 blocks_to_swap_in.append((src, dst))
         self._swap_mapping.clear()
 
-        logger.info("[elasticswap] blocks_to_swap_out=%s blocks_to_swap_in=%s" 
-                    % (len(blocks_to_swap_out), len(blocks_to_swap_in)))
+        # logger.info("[elasticswap] blocks_to_swap_out=%s blocks_to_swap_in=%s" 
+        #             % (len(blocks_to_swap_out), len(blocks_to_swap_in)))
         return blocks_to_swap_out, blocks_to_swap_in
 
     def will_swap_in_cpu_blocks(self):

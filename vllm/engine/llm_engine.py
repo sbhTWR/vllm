@@ -1533,6 +1533,17 @@ class LLMEngine:
             if self.scheduler_config.is_multi_step:
                 self._update_cached_scheduler_output(virtual_engine, outputs)
         else:
+            
+            """
+            ElasticSwap deadlock detection. If deadlocked, then invoke 
+            memory_pressure_evict for deadlock 
+            """
+            scheduler = self.scheduler[virtual_engine]
+            if not scheduler.running and (scheduler.returning or scheduler.waiting):
+                # schedule deadlock eviction 
+                scheduler.resolve_deadlock = True 
+                logger.info("[elasticswap] engine: scheduling deadlock resolution")
+
             # Nothing scheduled => If there is pending async postprocessor,
             # then finish it here.
             if len(ctx.output_queue) > 0:
