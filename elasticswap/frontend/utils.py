@@ -142,11 +142,14 @@ def run_experiment(
     block_allocator = "CpuOffloadingBlockAllocator",
     port = 8000,
     enable_returning_queue = False,
+    returning_queue_sort_freq = 5.0,
+    returning_queue_sched_policy = "roundrobin",
     enable_swap_budget = False,
     swap_budget_type = "fixed",
     swap_budget_frac = 0.5,
     enable_eager_evict = False,
     cache_pin_ttl = 5,
+
 ):
     retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
     exp_path = os.path.join(results_path, exp_name)
@@ -172,6 +175,8 @@ def run_experiment(
             "--evict-token-thresh", str(evict_token_thresh), 
             "--evict-token-count", str(evict_token_count),
             "--enable-returning-queue", str(enable_returning_queue),
+            "--returning-queue-sched-policy", str(returning_queue_sched_policy),
+            "--returning-queue-sort-freq", str(returning_queue_sort_freq),
             "--enable-swap-budget", str(enable_swap_budget),
             "--swap-budget-type", str(swap_budget_type),
             "--swap-budget-frac", str(swap_budget_frac),

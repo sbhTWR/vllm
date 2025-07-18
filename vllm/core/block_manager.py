@@ -777,7 +777,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             )
 
         logger.info('[elasticswap] num_required_blocks=%s' % num_required_blocks)
-
+        
         if seq_group.is_encoder_decoder():
             num_required_blocks += BlockTable.get_num_required_blocks(
                 seq_group.get_encoder_seq().get_token_ids(),

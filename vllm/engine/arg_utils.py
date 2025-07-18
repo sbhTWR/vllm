@@ -14,7 +14,7 @@ from vllm.config import (CacheConfig, CompilationConfig, ConfigFormat,
                          DecodingConfig, DeviceConfig, HfOverrides,
                          KVTransferConfig, LoadConfig, LoadFormat, LoRAConfig,
                          ModelConfig, ModelImpl, ObservabilityConfig,
-                         ParallelConfig, PoolerConfig, PromptAdapterConfig,
+                         ParallelConfig, PoolerConfig, PromptAdapterConfig, ReturningQueueSchedPolicy,
                          SchedulerConfig, SpeculativeConfig, TaskOption,
                          TokenizerPoolConfig, VllmConfig)
 from vllm.executor.executor_base import ExecutorBase
@@ -198,7 +198,11 @@ class EngineArgs:
     disable_async_output_proc: bool = False
     scheduling_policy: Literal["fcfs", "priority"] = "fcfs"
     finished_requests_policy: Literal["default", "pause_recompute", "pause_swap"] = "default"
+    
     enable_returning_queue: bool = False
+    returning_queue_sched_policy: ReturningQueueSchedPolicy = ReturningQueueSchedPolicy.PRIO
+    returning_queue_sort_freq: float = 5.0
+
     retrify_log_file: str = None
 
     override_neuron_config: Optional[Dict[str, Any]] = None
@@ -969,10 +973,31 @@ class EngineArgs:
             default="default",
             help='TODO')
     
+        # parser.add_argument(
+        #     '--enable-returning-queue',
+        #     type=bool,
+        #     default=False,
+        #     help='TODO')
+
         parser.add_argument(
             '--enable-returning-queue',
-            type=bool,
+            action=StoreBoolean,
             default=False,
+            nargs="?",
+            const="True",
+            help='.')
+        
+
+        parser.add_argument(
+            '--returning-queue-sched-policy',
+            choices=["prio", "roundrobin"],
+            default="prio",
+            help='TODO')
+        
+        parser.add_argument(
+            '--returning-queue-sort-freq',
+            type=float,
+            default=5.0,
             help='TODO')
     
         # swapping budget 
@@ -1366,7 +1391,11 @@ class EngineArgs:
                              and parallel_config.use_ray),
             policy=self.scheduling_policy,
             finished_requests_policy=self.finished_requests_policy,
+            
             enable_returning_queue=self.enable_returning_queue,
+            returning_queue_sched_policy=self.returning_queue_sched_policy,
+            returning_queue_sort_freq=self.returning_queue_sort_freq,
+
             csv_logger_file_name=self.retrify_log_file,
             enable_eager_evict=self.enable_eager_evict,
             evict_token_thresh=self.evict_token_thresh,

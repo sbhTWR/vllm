@@ -14,7 +14,7 @@ from typing import Set, Tuple, Union
 
 import numpy as np
 
-from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
+from vllm.config import CacheConfig, LoRAConfig, ReturningQueueSchedPolicy, SchedulerConfig
 from vllm.core.block_manager import AllocationContextManager
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.logger import init_logger
@@ -1011,6 +1011,10 @@ class Scheduler:
 
         self.resolve_deadlock = False
 
+        self.ret_queue_last_sorted_time = time.time()
+        self.ret_queue_sched_policy = self.scheduler_config.returning_queue_sched_policy
+        self.ret_queue_turn = 0 # 0 for ret queue, # 1 for waiting queue 
+
 
     @property
     def next_cache_id(self):
@@ -1155,7 +1159,8 @@ class Scheduler:
 
     def has_unfinished_seqs(self) -> bool:
         return len(self.waiting) != 0 or len(self.running) != 0 or len(
-            self.swapped) != 0 or self.swap_scheduler.pending_requests()
+            self.swapped) != 0 or self.swap_scheduler.pending_requests() or len(
+                self.returning) != 0
 
     def get_prefix_cache_hit_rate(self, device: Device) -> float:
         return self.block_manager.get_prefix_cache_hit_rate(device)
@@ -1199,29 +1204,47 @@ class Scheduler:
                 num_tokens_needed += len(toks)
 
             num_blocks_to_evict = int(num_tokens_needed / self.block_manager.block_size)
-            logger.info("[elasticswap] evicting %d blocks for deadlock resolution" % num_blocks_to_evict)
-
-            self.block_manager.block_allocator.memory_pressure_evict(
+        
+            num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
                 num_blocks_to_evict,
-                cache_pin_ttl=-9999999 # -1 for ignoring ttl 
+                cache_pin_ttl=None # None for ignoring ttl 
             )
+
+            logger.info("[elasticswap] evicting %s blocks for deadlock resolution; evicted=%s" 
+                        % (num_blocks_to_evict, num_blocks_evicted))
 
             self.resolve_deadlock = False
 
         else:
+            
+            sched_queue = None 
+            if self.scheduler_config.returning_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
+                sched_queue = self.returning
+            elif self.scheduler_config.returning_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
+                if self.ret_queue_turn == 0:
+                    sched_queue = self.returning
+                else:
+                    sched_queue = self.waiting
+
             num_tokens_waiting = 0
-            for seq_group in self.waiting:
+            for seq_group in sched_queue:
                 seq = seq_group.first_seq
                 toks = seq.get_token_ids()
 
                 num_tokens_waiting += len(toks)
             
+            # logger.info("[elasticswap] num_tokens_waiting=%s evict_token_thresh=%s" 
+            #             % (num_tokens_waiting, self.evict_token_thresh))
+
             if num_tokens_waiting >= self.evict_token_thresh:
                 num_blocks_to_evict = self.evict_token_count / self.block_manager.block_size
-                self.block_manager.block_allocator.memory_pressure_evict(
+                num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
                     num_blocks_to_evict,
                     cache_pin_ttl=self.cache_pin_ttl
                 )
+
+                # logger.info("[elasticswap] memory_pressure_evict_thresh num_blocks_to_evict=%s num_blocks_evicted=%s" 
+                #             % (num_blocks_to_evict, num_blocks_evicted))
 
     def _schedule_running(
         self,
@@ -1811,22 +1834,62 @@ class Scheduler:
             elasticswap: sort the returning queue 
             """
             if self.cache_config.block_allocator != "CpuGpuBlockAllocator":
-                self.returning = deque(
-                 sorted(self.returning, 
-                    key=lambda group: self._get_num_cached_blocks(group), 
-                    reverse=True)
-                )
+                now = time.time()
+                time_since_last_sort = now - self.ret_queue_last_sorted_time
+                
+                if time_since_last_sort >= self.scheduler_config.returning_queue_sort_freq:
+                    # logger.info("[elasticswap] sorting returning queue. Length=%d" 
+                    #             % len(self.returning))
+                    self.returning = deque(
+                    sorted(self.returning, 
+                        key=lambda group: self._get_num_cached_blocks(group), 
+                        reverse=True)
+                    )
 
-            prefills_returning = self._schedule_prefills(budget,
-                                               curr_loras,
-                                               enable_chunking=False,
-                                               queue=self.returning)
+                    self.ret_queue_last_sorted_time = now
 
-            prefills = self._schedule_prefills(budget,
-                                               curr_loras,
-                                               enable_chunking=False,
-                                               queue=self.waiting)
+            if self.ret_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
+
+                # logger.info("[elasticswap] scheduling prio --> returning; waiting")
+
+                prefills_returning = self._schedule_prefills(budget,
+                                                curr_loras,
+                                                enable_chunking=False,
+                                                queue=self.returning)
+
+                prefills = self._schedule_prefills(budget,
+                                                curr_loras,
+                                                enable_chunking=False,
+                                                queue=self.waiting)
             
+            elif self.ret_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
+
+                if self.ret_queue_turn == 0:
+                    # logger.info("[elasticswap] scheduling roundrobin --> returning; waiting")
+                    prefills_returning = self._schedule_prefills(budget,
+                                                curr_loras,
+                                                enable_chunking=False,
+                                                queue=self.returning)
+
+                    prefills = self._schedule_prefills(budget,
+                                                    curr_loras,
+                                                    enable_chunking=False,
+                                                    queue=self.waiting)
+                
+                else:
+                    # logger.info("[elasticswap] scheduling roundrobin --> waiting; returning")
+                    prefills = self._schedule_prefills(budget,
+                                                curr_loras,
+                                                enable_chunking=False,
+                                                queue=self.waiting)
+            
+                    prefills_returning = self._schedule_prefills(budget,
+                                                curr_loras,
+                                                enable_chunking=False,
+                                                queue=self.returning)
+
+                self.ret_queue_turn = 1 - self.ret_queue_turn
+
             # join the two outputs 
             prefills.seq_groups.extend(prefills_returning.seq_groups)
             prefills.ignored_seq_groups.extend(prefills_returning.ignored_seq_groups)

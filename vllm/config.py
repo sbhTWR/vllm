@@ -1471,6 +1471,10 @@ class SwapBudgetType(enum.Enum):
     FIXED = enum.auto()
     VARIABLE = enum.auto()
 
+class ReturningQueueSchedPolicy(enum.Enum):
+    PRIO = enum.auto()
+    ROUNDROBIN = enum.auto()
+
 @dataclass
 class SchedulerConfig:
     """Scheduler configuration."""
@@ -1550,12 +1554,17 @@ class SchedulerConfig:
     evict_token_thresh: int = 1e6
     evict_token_count: int = 10000
 
+    # returning queue 
     enable_returning_queue: bool = False
+    returning_queue_sort_freq: int = 10 
+    returning_queue_sched_policy: str = "prio"
 
     # define swap-budget
     enable_swap_budget: bool = True
     swap_budget_type: str = "fixed"
     swap_budget_frac: int = 0.5
+
+
 
     def compute_hash(self) -> str:
         """
@@ -1625,6 +1634,17 @@ class SchedulerConfig:
                 self.swap_budget_type = SwapBudgetType.VARIABLE
             else:
                 ValueError("invalid swap_budget type %s" % self.swap_budget_type)
+
+
+        if self.enable_returning_queue:
+            if self.returning_queue_sched_policy == "prio":
+                self.returning_queue_sched_policy = ReturningQueueSchedPolicy.PRIO
+            elif self.returning_queue_sched_policy == "roundrobin":
+                self.returning_queue_sched_policy = ReturningQueueSchedPolicy.ROUNDROBIN
+            else:
+                ValueError("invalid ret queue policy type %s" 
+                           % self.returning_queue_sched_policy)
+
 
         self._verify_args()
 
