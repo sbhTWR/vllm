@@ -104,11 +104,20 @@ class FreeBlockSwapScheduler:
             # add to heap depending upon the strategy
             if self.swap_strategy == SwapStrategy.PERSIST or\
             self.swap_strategy == SwapStrategy.SWAP_LRU:
-                last_accessed, _, block_id, content_hash = heapq.heappop(
+                last_accessed, num_hashed_tokens, block_id, content_hash = heapq.heappop(
                     self.priority_queue)
                 if (block_id in self.free_table and
                         self.free_table[block_id].last_accessed == last_accessed):
                     
+                    delta = time.time() - last_accessed
+                    if cache_pin_ttl and (delta < cache_pin_ttl):
+                        # restore the block in evictor 
+                        heapq.heappush(
+                            self.priority_queue,
+                            (last_accessed, num_hashed_tokens, block_id, content_hash)
+                        )
+                        return None, None
+
                     block_metadata = self.free_table[block_id]
                     self.free_table.pop(block_id)
                     return block_id, block_metadata

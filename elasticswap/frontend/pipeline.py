@@ -275,7 +275,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-46-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-50-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -325,8 +325,8 @@ def main():
                 'tp_size': 1, 
                 'pp_size': 1, 
                 'swap_space': 500,
-                'evict_token_thresh': 1000000,
-                'evict_token_count': 10000,
+                'evict_token_thresh': 90000,
+                'evict_token_count': 7000,
                 'enable_chunked_prefill': False,
                 'fr_policy': "default",
                 'swap_strategy': "swap-lru",
@@ -334,10 +334,12 @@ def main():
                 'port': 8000,
                 'enable_returning_queue': enable_returning_queue,
                 'returning_queue_sched_policy': "prio",
-                'returning_queue_sort_freq': 20.0,
+                'returning_queue_sort_freq': 10.0,
+                'enable_swap_budget': True,
                 'swap_budget_type': "fixed",
-                'swap_budget_frac': swap_budget_frac,
-                'cache_pin_ttl': 5
+                'swap_budget_frac': 0.0,
+                'enable_eager_evict': True,
+                'cache_pin_ttl': 7
             }
         ]
 
