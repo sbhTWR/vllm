@@ -1181,70 +1181,87 @@ class Scheduler:
         if not self.enable_eager_evict:
             return
 
-        if self.resolve_deadlock:
-            # release memory for resolving deadlock 
-            # count number of blocks needed in total for first 
-            # request in waiting and first request in returning 
+        # if self.resolve_deadlock:
+        #     # release memory for resolving deadlock 
+        #     # count number of blocks needed in total for first 
+        #     # request in waiting and first request in returning 
             
-            logger.info("[elasticswap] deadlock resolution invoked; waiting=%d returning=%d running=%d" 
-                        % (len(self.waiting), len(self.returning), len(self.running)))
+        #     # logger.info("[elasticswap] deadlock resolution invoked; waiting=%d returning=%d running=%d" 
+        #     #             % (len(self.waiting), len(self.returning), len(self.running)))
 
-            num_tokens_needed = 0
+        #     num_tokens_needed = 0
 
+        #     if self.returning:
+        #         seq_group = self.returning[0]
+        #         seq = seq_group.first_seq
+        #         toks = seq.get_token_ids()
+        #         num_tokens_needed += len(toks)
+
+        #     if self.waiting:
+        #         seq_group = self.waiting[0]
+        #         seq = seq_group.first_seq
+        #         toks = seq.get_token_ids()
+        #         num_tokens_needed += len(toks)
+
+        #     num_blocks_to_evict = int(num_tokens_needed / self.block_manager.block_size)
+        
+        #     num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
+        #         num_blocks_to_evict,
+        #         cache_pin_ttl=None # None for ignoring ttl 
+        #     )
+
+        #     # logger.info("[elasticswap] evicting %s blocks for deadlock resolution; evicted=%s" 
+        #     #             % (num_blocks_to_evict, num_blocks_evicted))
+
+        #     self.resolve_deadlock = False
+
+        # else:
+            
+        sched_queue = None 
+        if self.scheduler_config.returning_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
             if self.returning:
-                seq_group = self.returning[0]
-                seq = seq_group.first_seq
-                toks = seq.get_token_ids()
-                num_tokens_needed += len(toks)
+                sched_queue = self.returning
+            else:
+                sched_queue = self.waiting
+        elif self.scheduler_config.returning_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
+            if self.ret_queue_turn == 0:
+                sched_queue = self.returning
+            else:
+                sched_queue = self.waiting
 
-            if self.waiting:
-                seq_group = self.waiting[0]
-                seq = seq_group.first_seq
-                toks = seq.get_token_ids()
-                num_tokens_needed += len(toks)
+        num_tokens_waiting = 0
+        for seq_group in sched_queue:
+            seq = seq_group.first_seq
+            toks = seq.get_token_ids()
 
-            num_blocks_to_evict = int(num_tokens_needed / self.block_manager.block_size)
+            num_tokens_waiting += len(toks)
+        
+        logger.info("[elasticswap] memory_pressure_evict_thresh waiting=%d returning=%d running=%d" 
+                    % (len(self.waiting), len(self.returning), len(self.running)))
+        logger.info("[elasticswap] memory_pressure_evict_thresh num_tokens_waiting=%s evict_token_thresh=%s" 
+                    % (num_tokens_waiting, self.evict_token_thresh))
+
+        num_blocks_to_evict = self.evict_token_count / self.block_manager.block_size
+        if num_tokens_waiting >= self.evict_token_thresh:
+            num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
+                num_blocks_to_evict,
+                cache_pin_ttl=self.cache_pin_ttl
+            )
+
+            logger.info("[elasticswap] memory_pressure_evict_thresh num_blocks_to_evict=%s num_blocks_evicted=%s" 
+                        % (num_blocks_to_evict, num_blocks_evicted))
+        
+        elif self.resolve_deadlock:
         
             num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
                 num_blocks_to_evict,
-                cache_pin_ttl=None # None for ignoring ttl 
+                cache_pin_ttl=self.cache_pin_ttl
             )
 
-            logger.info("[elasticswap] evicting %s blocks for deadlock resolution; evicted=%s" 
+            logger.info("[elasticswap] memory_pressure_evict_thresh deadlock condition num_blocks_to_evict=%s num_blocks_evicted=%s" 
                         % (num_blocks_to_evict, num_blocks_evicted))
-
+            
             self.resolve_deadlock = False
-
-        else:
-            
-            sched_queue = None 
-            if self.scheduler_config.returning_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
-                sched_queue = self.returning
-            elif self.scheduler_config.returning_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
-                if self.ret_queue_turn == 0:
-                    sched_queue = self.returning
-                else:
-                    sched_queue = self.waiting
-
-            num_tokens_waiting = 0
-            for seq_group in sched_queue:
-                seq = seq_group.first_seq
-                toks = seq.get_token_ids()
-
-                num_tokens_waiting += len(toks)
-            
-            # logger.info("[elasticswap] num_tokens_waiting=%s evict_token_thresh=%s" 
-            #             % (num_tokens_waiting, self.evict_token_thresh))
-
-            if num_tokens_waiting >= self.evict_token_thresh:
-                num_blocks_to_evict = self.evict_token_count / self.block_manager.block_size
-                num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
-                    num_blocks_to_evict,
-                    cache_pin_ttl=self.cache_pin_ttl
-                )
-
-                # logger.info("[elasticswap] memory_pressure_evict_thresh num_blocks_to_evict=%s num_blocks_evicted=%s" 
-                #             % (num_blocks_to_evict, num_blocks_evicted))
 
     def _schedule_running(
         self,
@@ -1982,7 +1999,6 @@ class Scheduler:
             for src, dst in new_swap_in:
                 elastic_swap_blocks_to_swap_in.extend((src, dst))
 
-            
 
         sched_outputs = SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,

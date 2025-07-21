@@ -110,6 +110,9 @@ class FreeBlockSwapScheduler:
                         self.free_table[block_id].last_accessed == last_accessed):
                     
                     delta = time.time() - last_accessed
+                    logger.info("[evictor] [lru] delta=%s cache_pin_ttl=%s"
+                        % (delta, cache_pin_ttl))
+
                     if cache_pin_ttl and (delta < cache_pin_ttl):
                         # restore the block in evictor 
                         heapq.heappush(
@@ -130,7 +133,11 @@ class FreeBlockSwapScheduler:
                         self.free_table[block_id].last_accessed == last_accessed):
                     
                     delta = abs(reuse_expected_time) - time.time()
+                    logger.info("[evictor] [hint] delta=%s cache_pin_ttl=%s" 
+                                            % (delta, cache_pin_ttl))
                     if cache_pin_ttl and (delta < cache_pin_ttl) and (-cache_pin_ttl < delta):
+                        
+
                         # restore the block in evictor 
                         heapq.heappush(
                             self.priority_queue,

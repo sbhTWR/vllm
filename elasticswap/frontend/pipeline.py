@@ -236,7 +236,7 @@ def main():
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    rates = [0.3]
+    rates = [0.1]
     # rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
     # rates = [0.05]
@@ -271,11 +271,11 @@ def main():
         print('Running experiment for rate=%.2f' % rate)
 
         env = {
-            'CUDA_VISIBLE_DEVICES': '6',
+            'CUDA_VISIBLE_DEVICES': '7',
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-50-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-57-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -287,61 +287,67 @@ def main():
                                    arrival_times=arrival_times,
                                    seed=42)
 
-        exps = [
-            {
-                "execute_workload_fn": exec_workload_fn,
-                'results_path': results_path,
-                'exp_name':  exp_name,
-                'config_name': "swap-hint",
-                'env': env,
-                'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-                'tp_size': 1, 
-                'pp_size': 1, 
-                'swap_space': 500,
-                'evict_token_thresh': 90000,
-                'evict_token_count': 7000,
-                'enable_chunked_prefill': False,
-                'fr_policy': "default",
-                'swap_strategy': "swap-hints",
-                'block_allocator': "CpuOffloadingBlockAllocator",
-                'port': 8000,
-                'enable_returning_queue': enable_returning_queue,
-                'returning_queue_sched_policy': "prio",
-                'returning_queue_sort_freq': 10.0,
-                'enable_swap_budget': True,
-                'swap_budget_type': "fixed",
-                'swap_budget_frac': 0.0,
-                'enable_eager_evict': True,
-                'cache_pin_ttl': 7
-            },
+        exps = []
+        for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
+        # for cache_ttl_value in [11]:
+        
+            exps.append(
+                {
+                    "execute_workload_fn": exec_workload_fn,
+                    'results_path': results_path,
+                    'exp_name': exp_name + '-ttl-%d' % cache_ttl_value,
+                    'config_name': "swap-hint",
+                    'env': env,
+                    'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+                    'tp_size': 1, 
+                    'pp_size': 1, 
+                    'swap_space': 500,
+                    'evict_token_thresh': 0,
+                    'evict_token_count': 10000,
+                    'enable_chunked_prefill': False,
+                    'fr_policy': "default",
+                    'swap_strategy': "swap-hints",
+                    'block_allocator': "CpuOffloadingBlockAllocator",
+                    'port': 8000,
+                    'enable_returning_queue': enable_returning_queue,
+                    'returning_queue_sched_policy': "prio",
+                    'returning_queue_sort_freq': 10.0,
+                    'enable_swap_budget': True,
+                    'swap_budget_type': "fixed",
+                    'swap_budget_frac': 0.0,
+                    'enable_eager_evict': True,
+                    'cache_pin_ttl': cache_ttl_value
+                }
+            )
 
-            {
-                "execute_workload_fn": exec_workload_fn,
-                'results_path': results_path,
-                'exp_name':  exp_name,
-                'config_name': "swap-lru",
-                'env': env,
-                'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-                'tp_size': 1, 
-                'pp_size': 1, 
-                'swap_space': 500,
-                'evict_token_thresh': 90000,
-                'evict_token_count': 7000,
-                'enable_chunked_prefill': False,
-                'fr_policy': "default",
-                'swap_strategy': "swap-lru",
-                'block_allocator': "CpuOffloadingBlockAllocator",
-                'port': 8000,
-                'enable_returning_queue': enable_returning_queue,
-                'returning_queue_sched_policy': "prio",
-                'returning_queue_sort_freq': 10.0,
-                'enable_swap_budget': True,
-                'swap_budget_type': "fixed",
-                'swap_budget_frac': 0.0,
-                'enable_eager_evict': True,
-                'cache_pin_ttl': 7
-            }
-        ]
+            exps.append(
+                {
+                    "execute_workload_fn": exec_workload_fn,
+                    'results_path': results_path,
+                    'exp_name': exp_name + '-ttl-%d' % cache_ttl_value,
+                    'config_name': "swap-lru",
+                    'env': env,
+                    'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+                    'tp_size': 1, 
+                    'pp_size': 1, 
+                    'swap_space': 500,
+                    'evict_token_thresh': 0,
+                    'evict_token_count': 7000,
+                    'enable_chunked_prefill': False,
+                    'fr_policy': "default",
+                    'swap_strategy': "swap-lru",
+                    'block_allocator': "CpuOffloadingBlockAllocator",
+                    'port': 8000,
+                    'enable_returning_queue': enable_returning_queue,
+                    'returning_queue_sched_policy': "prio",
+                    'returning_queue_sort_freq': 10.0,
+                    'enable_swap_budget': True,
+                    'swap_budget_type': "fixed",
+                    'swap_budget_frac': 0.0,
+                    'enable_eager_evict': True,
+                    'cache_pin_ttl': cache_ttl_value
+                }
+            )
 
         for exp in exps:
             run_experiment(**exp)
