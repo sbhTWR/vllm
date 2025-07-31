@@ -25,7 +25,7 @@ from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sequence import (ExecuteModelRequest, IntermediateTensors,
                            SequenceGroupMetadata, SequenceGroupMetadataDelta)
 from vllm.utils import (GiB_bytes, MemorySnapshot, bind_kv_cache,
-                        memory_profiling)
+                        memory_profiling, CUDATimer)
 from vllm.worker.cache_engine import CacheEngine
 from vllm.worker.enc_dec_model_runner import EncoderDecoderModelRunner
 from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
@@ -382,9 +382,9 @@ class Worker(LocalOrDistributedWorkerBase):
     def execute_worker(self, worker_input: WorkerInput) -> None:
         virtual_engine = worker_input.virtual_engine
         # Issue cache operations.
-        # logger.info("[elasticswap] worker_input.blocks_to_swap_in=%s" % worker_input.blocks_to_swap_in)
-        # logger.info("[elasticswap] worker_input.blocks_to_swap_out=%s" % worker_input.blocks_to_swap_out)
-        # logger.info("[elasticswap] worker_input.blocks_to_copy=%s" % worker_input.blocks_to_copy)
+        logger.info("[elasticswap] worker_input.blocks_to_swap_in=%s" % len(worker_input.blocks_to_swap_in))
+        logger.info("[elasticswap] worker_input.blocks_to_swap_out=%s" % len(worker_input.blocks_to_swap_out))
+        logger.info("[elasticswap] worker_input.blocks_to_copy=%s" % len(worker_input.blocks_to_copy))
         torch.cuda.synchronize()
         swap_in_t_start = time.perf_counter()
         if (worker_input.blocks_to_swap_in is not None

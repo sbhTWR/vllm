@@ -44,7 +44,8 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
         ))
         
         # 3. Interrupt durations
-        max_total_interrupt_time = 1 * request_size / 1000  # e.g., 15s for 30k
+        # max_total_interrupt_time = 1 * request_size / 1000  # e.g., 15s for 30k
+        max_total_interrupt_time = 100.0  # seconds
 
         if vary_interrupts:
             # Generate individual tool call durations
@@ -52,7 +53,7 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
             for _ in range(num_interrupts):
                 dur = float(np.clip(
                     rng.lognormal(mean=np.log(1.0), sigma=0.7),
-                    0.1, 25.0
+                    0.1, 20.0
                 ))
                 durations.append(dur)
             
@@ -236,7 +237,7 @@ def main():
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    rates = [0.1]
+    rates = [0.3, 0.6]
     # rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
     # rates = [0.05]
@@ -271,11 +272,11 @@ def main():
         print('Running experiment for rate=%.2f' % rate)
 
         env = {
-            'CUDA_VISIBLE_DEVICES': '7',
+            'CUDA_VISIBLE_DEVICES': '5',
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-57-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-69-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -288,9 +289,8 @@ def main():
                                    seed=42)
 
         exps = []
-        for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
-        # for cache_ttl_value in [11]:
-        
+        # for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
+        for cache_ttl_value in [0, 3, 7, 11]:
             exps.append(
                 {
                     "execute_workload_fn": exec_workload_fn,
@@ -302,8 +302,8 @@ def main():
                     'tp_size': 1, 
                     'pp_size': 1, 
                     'swap_space': 500,
-                    'evict_token_thresh': 0,
-                    'evict_token_count': 10000,
+                    'evict_token_thresh': 99999999999,
+                    'evict_token_count': 0,
                     'enable_chunked_prefill': False,
                     'fr_policy': "default",
                     'swap_strategy': "swap-hints",
@@ -331,8 +331,8 @@ def main():
                     'tp_size': 1, 
                     'pp_size': 1, 
                     'swap_space': 500,
-                    'evict_token_thresh': 0,
-                    'evict_token_count': 7000,
+                    'evict_token_thresh': 99999999999,
+                    'evict_token_count': 0,
                     'enable_chunked_prefill': False,
                     'fr_policy': "default",
                     'swap_strategy': "swap-lru",

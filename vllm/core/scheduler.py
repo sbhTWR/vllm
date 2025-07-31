@@ -1251,17 +1251,49 @@ class Scheduler:
             logger.info("[elasticswap] memory_pressure_evict_thresh num_blocks_to_evict=%s num_blocks_evicted=%s" 
                         % (num_blocks_to_evict, num_blocks_evicted))
         
-        elif self.resolve_deadlock:
+        # elif self.resolve_deadlock:
         
-            num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
-                num_blocks_to_evict,
-                cache_pin_ttl=self.cache_pin_ttl
-            )
+        #     num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
+        #         num_blocks_to_evict,
+        #         cache_pin_ttl=self.cache_pin_ttl
+        #     )
 
-            logger.info("[elasticswap] memory_pressure_evict_thresh deadlock condition num_blocks_to_evict=%s num_blocks_evicted=%s" 
-                        % (num_blocks_to_evict, num_blocks_evicted))
+        #     logger.info("[elasticswap] memory_pressure_evict_thresh deadlock condition num_blocks_to_evict=%s num_blocks_evicted=%s" 
+        #                 % (num_blocks_to_evict, num_blocks_evicted))
             
-            self.resolve_deadlock = False
+        #     self.resolve_deadlock = False
+
+        elif self.resolve_deadlock:
+            sched_queue = None 
+            if self.scheduler_config.returning_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
+                if self.returning:
+                    sched_queue = self.returning
+                else:
+                    sched_queue = self.waiting
+            elif self.scheduler_config.returning_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
+                if self.ret_queue_turn == 0:
+                    sched_queue = self.returning
+                else:
+                    sched_queue = self.waiting
+
+            num_tokens_waiting = 0
+            if sched_queue:
+                seq_group = sched_queue[0]
+                seq = seq_group.first_seq
+                toks = seq.get_token_ids()
+
+                num_tokens_waiting = len(toks)
+                num_blocks_to_evict = int(num_tokens_waiting / self.block_manager.block_size)
+
+                num_blocks_evicted = self.block_manager.block_allocator.memory_pressure_evict(
+                    num_blocks_to_evict,
+                    cache_pin_ttl=self.cache_pin_ttl
+                )
+                
+                logger.info("[elasticswap] [deadlock] memory_pressure_evict_thresh num_blocks_to_evict=%s num_blocks_evicted=%s" 
+                            % (num_blocks_to_evict, num_blocks_evicted))
+                
+                self.resolve_deadlock = False
 
     def _schedule_running(
         self,
@@ -1865,6 +1897,8 @@ class Scheduler:
 
                     self.ret_queue_last_sorted_time = now
 
+            prefills_returning = SchedulerPrefillOutputs.create_empty()
+
             if self.ret_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
 
                 # logger.info("[elasticswap] scheduling prio --> returning; waiting")
@@ -2208,6 +2242,11 @@ class Scheduler:
         # such as self.running, self.swapped, and self.waiting.
         scheduler_start_time = time.perf_counter()
         scheduler_outputs: SchedulerOutputs = self._schedule()
+        if scheduler_outputs.is_empty():
+            if not self.running and (self.returning or self.waiting):
+                self.resolve_deadlock = True
+                self.memory_pressure_evict_if_necessary()
+                scheduler_outputs: SchedulerOutputs = self._schedule()
         now = time.time()
 
         if not self.cache_config.enable_prefix_caching:

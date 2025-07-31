@@ -92,3 +92,9 @@ def annotate_expected_durations(nodes: List[Node]):
 
     for node in nodes:
         dfs(node)
+    
+    # mark all leaf nodes as having 9999999 expected duration
+    # for eviction 
+    for node in nodes:
+        if not node.downstream:
+            node.metadata["kv_reuse_expected_duration_s"] = 9999999.0

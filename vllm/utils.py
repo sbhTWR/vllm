@@ -2263,3 +2263,43 @@ def import_pynvml():
 
 def get_current_time():
     return time.time()
+
+
+class CUDATimer:
+    def __init__(self, stream=None):
+        self.stream = stream if stream else torch.cuda.current_stream()
+        self.start_event = torch.cuda.Event(enable_timing=True)
+        self.end_event = torch.cuda.Event(enable_timing=True)
+        self.recorded = False
+
+    def start(self):
+        self.start_event.record(self.stream)
+
+    def stop(self):
+        self.end_event.record(self.stream)
+        self.recorded = True
+
+    def wait(self):
+        """
+        Blocks until the end event is complete.
+        """
+        if not self.recorded:
+            raise RuntimeError("Timer stop() has not been called yet.")
+        self.end_event.synchronize()
+
+    def elapsed_time(self):
+        """
+        Blocks if necessary, then returns elapsed time in ms.
+        """
+        if not self.recorded:
+            raise RuntimeError("Timer stop() has not been called yet.")
+        self.wait()  # Ensure the event is done
+        return self.start_event.elapsed_time(self.end_event)
+
+    def query(self):
+        """
+        Non-blocking check if end event is complete.
+        """
+        return self.end_event.query() if self.recorded else False
+
+
