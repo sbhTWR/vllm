@@ -926,6 +926,7 @@ class Scheduler:
             enable_swap_budget=self.scheduler_config.enable_swap_budget,
             swap_budget_type=self.scheduler_config.swap_budget_type,
             swap_budget_frac=self.scheduler_config.swap_budget_frac,
+            pinned_memory_frac=self.cache_config.pinned_memory_frac,
             )
 
         # Sequence groups in the WAITING state.
@@ -1766,6 +1767,14 @@ class Scheduler:
             # If the sequence group cannot be allocated, stop.
             can_allocate = self.block_manager.can_allocate(
                 seq_group, num_lookahead_slots=num_lookahead_slots)
+
+            if can_allocate == AllocStatus.LATER:
+                # try eviction proactively
+                self.resolve_deadlock = True
+                self.memory_pressure_evict_if_necessary()
+                can_allocate = self.block_manager.can_allocate(
+                    seq_group, num_lookahead_slots=num_lookahead_slots)
+
             if can_allocate == AllocStatus.LATER:
                 break
             elif can_allocate == AllocStatus.NEVER:

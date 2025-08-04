@@ -96,6 +96,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         enable_swap_budget: bool = False,
         swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
         swap_budget_frac: float = 0.5,
+        pinned_memory_frac: float = 0.25,
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
@@ -129,7 +130,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             swap_strategy=swap_strategy,
             enable_swap_budget=enable_swap_budget,
             swap_budget_type=swap_budget_type,
-            swap_budget_frac=swap_budget_frac
+            swap_budget_frac=swap_budget_frac,
+            pinned_memory_frac=pinned_memory_frac,
         )
 
         self.block_tables: Dict[SeqId, BlockTable] = {}

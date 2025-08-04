@@ -33,6 +33,7 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         enable_swap_budget: bool = False,
         swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
         swap_budget_frac: float = 0.5,
+        pinned_memory_frac: float = 0.25,
     ) -> DeviceAwareBlockAllocator:
         """Creates a CpuGpuBlockAllocator instance with the specified
         configuration.

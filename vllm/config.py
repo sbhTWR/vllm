@@ -1077,6 +1077,7 @@ class CacheConfig:
         block_allocator: str = "CpuGpuBlockAllocator",
         swap_strategy: str = "swap-lru",
         cache_pin_ttl: Optional[int] = None,
+        pinned_memory_frac: float = 0.25,
     ) -> None:
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -1091,6 +1092,7 @@ class CacheConfig:
         self.block_allocator = block_allocator
         self.swap_strategy = swap_strategy
         self.cache_pin_ttl = cache_pin_ttl
+        self.pinned_memory_frac = pinned_memory_frac
         self._verify_args()
         self._verify_cache_dtype()
         self._verify_prefix_caching()
@@ -1563,8 +1565,6 @@ class SchedulerConfig:
     enable_swap_budget: bool = True
     swap_budget_type: str = "fixed"
     swap_budget_frac: int = 0.5
-
-
 
     def compute_hash(self) -> str:
         """

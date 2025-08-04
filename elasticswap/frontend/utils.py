@@ -149,6 +149,7 @@ def run_experiment(
     swap_budget_frac = 0.5,
     enable_eager_evict = False,
     cache_pin_ttl = 5,
+    pinned_memory_frac = 0.25,
 
 ):
     retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
@@ -182,8 +183,9 @@ def run_experiment(
             "--swap-budget-frac", str(swap_budget_frac),
             "--enable-eager-evict", str(enable_eager_evict),
             "--cache-pin-ttl", str(cache_pin_ttl),
+            "--pinned-memory-frac", str(pinned_memory_frac),
             "--preemption-mode", "recomputation",
-            "--max-num-seqs", "3",
+            "--max-num-seqs", "8",
             '--enable-prefix-caching',
             '--enforce-eager'
         ],

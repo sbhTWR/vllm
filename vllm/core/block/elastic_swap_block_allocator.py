@@ -69,6 +69,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         enable_swap_budget: bool = False,
         swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
         swap_budget_frac: float = 0.5,
+        pinned_memory_frac: float = 0.25,
     ) -> DeviceAwareBlockAllocator:
         """Initiate CpuOffloadingBlockAllocator. Similar to 
         CpuGpuBlockAllocator.create() but only support prefix caching
@@ -109,7 +110,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             swap_strategy=swap_strategy,
             enable_swap_budget=enable_swap_budget,
             swap_budget_type=swap_budget_type,
-            swap_budget_frac=swap_budget_frac
+            swap_budget_frac=swap_budget_frac,
+            pinned_memory_frac=pinned_memory_frac,
         )
 
         cpu_allocator: BlockAllocator = NaiveBlockAllocator(

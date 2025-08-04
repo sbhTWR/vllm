@@ -750,6 +750,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         enable_swap_budget: bool = False,
         swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
         swap_budget_frac: float = 0.5,
+        pinned_memory_frac: float = 0.25,
     ):
         if block_ids is None:
             block_ids = range(num_blocks)
@@ -800,11 +801,18 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             refcounter=self._refcounter.as_readonly())
 
         self.metric_data = CacheMetricData()
-        self.swap_scheduler = FreeBlockSwapScheduler(swap_strategy=swap_strategy)
+
+        pinned_blocks_thresh = int(num_blocks * pinned_memory_frac)
+
+        self.swap_scheduler = FreeBlockSwapScheduler(
+            swap_strategy=swap_strategy,
+            pinned_blocks_thresh=pinned_blocks_thresh,
+            )
 
         self.enable_swap_budget = enable_swap_budget
         self.swap_budget_type = swap_budget_type
         self.swap_budget_frac = swap_budget_frac
+
 
     # Implements Block.Factory.
     def _create_block(
@@ -1178,11 +1186,18 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             num_free_blocks = self._hashless_allocator.get_num_free_blocks(
             ) + self.swap_scheduler.num_blocks
 
-            num_hashless = self._hashless_allocator.get_num_free_blocks()
-            num_swap_evictor = self.swap_scheduler.num_blocks
+            # num_hashless = self._hashless_allocator.get_num_free_blocks()
+            # num_swap_evictor = self.swap_scheduler.num_blocks
 
             # logger.info("[num_free_blocks] swap_budget_enabled=False num_free=%d frac=%s num_hashless=%s num_swap_evictor=%s" 
             #             % (num_free_blocks, self.swap_budget_frac, num_hashless, num_swap_evictor))
+
+        # Account for pinned blocks threshold - these blocks are not actually available
+        # because the evictor won't evict them when below the threshold
+        if hasattr(self.swap_scheduler, 'pinned_blocks_thresh'):
+            pinned_blocks = min(self.swap_scheduler.pinned_blocks_thresh, 
+                               self.swap_scheduler.num_blocks)
+            num_free_blocks = max(0, num_free_blocks - pinned_blocks)
 
         return num_free_blocks
         

@@ -226,6 +226,9 @@ class EngineArgs:
     
     # define cache ttl 
     cache_pin_ttl: Optional[int] = -1
+
+    # pinned memory frac 
+    pinned_memory_frac: float = 0.25
     
 
     def __post_init__(self):
@@ -1033,6 +1036,12 @@ class EngineArgs:
             default=None,
             help='TODO')
         
+        parser.add_argument(
+            '--pinned-memory-frac',
+            type=float,
+            default=0.25,
+            help='TODO')
+        
         # parser.add_argument(
         #     '--enable-eager-evict',
         #     type=bool,
@@ -1253,6 +1262,7 @@ class EngineArgs:
             block_allocator=self.block_allocator,
             swap_strategy=self.swap_strategy,
             cache_pin_ttl=self.cache_pin_ttl,
+            pinned_memory_frac=self.pinned_memory_frac,
         )
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,

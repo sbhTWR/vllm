@@ -81,10 +81,14 @@ class BlockMetaData:
 
 
 class FreeBlockSwapScheduler:
-    def __init__(self, swap_strategy = SwapStrategy.SWAP_LRU):
+    def __init__(self, swap_strategy = SwapStrategy.SWAP_LRU,
+                 pinned_blocks_thresh: int = 0):
         self.free_table: Dict[int, BlockMetaData] = {}
         self.priority_queue = []
         self.swap_strategy = swap_strategy
+        self.pinned_blocks_thresh = pinned_blocks_thresh
+        logger.info("[evictor] [swap_strategy=%s] [pinned_blocks_thresh=%d]",
+                    self.swap_strategy.name, self.pinned_blocks_thresh)
 
     def __contains__(self, block_id: int) -> bool:
         return block_id in self.free_table
@@ -93,6 +97,13 @@ class FreeBlockSwapScheduler:
     def evict(self, cache_pin_ttl=None) -> Tuple[int, BlockMetaData]:
         if len(self.free_table) == 0:
             raise ValueError("No usable cache memory left")
+
+        if len(self.free_table) <= self.pinned_blocks_thresh:
+            # if the number of free blocks is less than or equal to the pinned
+            # blocks threshold, we do not evict any block.
+            logger.info("[evictor] [pinned] No eviction, free blocks: %d, pinned blocks threshold: %d",
+                        len(self.free_table), self.pinned_blocks_thresh)
+            return None, None
 
         while self.priority_queue:
             # We do not remove outdated entries from the priority queue at the
