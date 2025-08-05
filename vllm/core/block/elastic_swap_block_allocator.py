@@ -417,11 +417,20 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         
         gpu_block_id = None 
         block_metadata = None
+        # logger.info("[DEBUG] swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+        #            swap_scheduler.num_blocks, getattr(swap_scheduler, 'pinned_blocks_thresh', 0))
+        
         if swap_scheduler.num_blocks > 0:
-            gpu_block_id, block_metadata = swap_scheduler.evict()
-            # logger.info(">>>> gpu_block_id=%d evicted from swap scheduler. user_id=%s" 
-            #             % (gpu_block_id, block_metadata.last_accessed_by_user))
+            # Try normal eviction first
+            gpu_block_id, block_metadata = swap_scheduler.evict(force_evict=True)
+            # logger.info("[DEBUG] evict() returned: gpu_block_id=%s, block_metadata=%s", 
+            #            gpu_block_id, "None" if block_metadata is None else f"content_hash={block_metadata.content_hash}")
+            
+            if gpu_block_id is None or block_metadata is None:
+                logger.error("[DEBUG] evict() returned None, None - this should not happen!")
+                raise BlockAllocator.NoFreeBlocksError()
         else:
+            # logger.error("[DEBUG] swap_scheduler.num_blocks is 0, raising NoFreeBlocksError")
             raise BlockAllocator.NoFreeBlocksError()
 
         # 2.a -- perform book-keeping on the block
@@ -520,9 +529,14 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             List[Block]: The newly allocated list of immutable blocks 
                 containing the provided block token IDs.
         """
+        # logger.info("[DEBUG] allocate_immutable_blocks: block_token_ids=%d, device=%s, extra_hash=%s", 
+        #            len(block_token_ids), device, extra_hash)
         assert device == Device.GPU, "Calls to CPU offloading block allocator "\
             "should always use Device.GPU --- CPU offloading block allocator"\
             "handles CPU offloading internally."
+
+        # logger.info("[DEBUG] allocate_immutable_blocks: block_token_ids=%d, device=%s, extra_hash=%s", 
+        #            len(block_token_ids), device, extra_hash)
 
         # repeatedly call allocate_immutable_block
         # because it handles CPU-GPU offloading related logics.

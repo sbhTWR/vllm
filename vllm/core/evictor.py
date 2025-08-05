@@ -94,15 +94,16 @@ class FreeBlockSwapScheduler:
         return block_id in self.free_table
 
 
-    def evict(self, cache_pin_ttl=None) -> Tuple[int, BlockMetaData]:
+    def evict(self, cache_pin_ttl=None, force_evict=False) -> Tuple[int, BlockMetaData]:
         if len(self.free_table) == 0:
             raise ValueError("No usable cache memory left")
 
-        if len(self.free_table) <= self.pinned_blocks_thresh:
+        if len(self.free_table) <= self.pinned_blocks_thresh and not force_evict:
             # if the number of free blocks is less than or equal to the pinned
             # blocks threshold, we do not evict any block.
-            logger.info("[evictor] [pinned] No eviction, free blocks: %d, pinned blocks threshold: %d",
-                        len(self.free_table), self.pinned_blocks_thresh)
+            logger.info("[evictor] [pinned] No eviction, free blocks: %d, pinned blocks threshold: %d, force_evict: %s",
+                        len(self.free_table), self.pinned_blocks_thresh, force_evict)
+            logger.warning("[DEBUG] evict() returning None, None due to pinned blocks threshold")
             return None, None
 
         while self.priority_queue:

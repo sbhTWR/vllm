@@ -243,7 +243,8 @@ def main():
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.4, 0.5, 0.6]
-    rates = [0.3]
+    # rates = [0.5, 0.7, 0.9, 1.0]
+    rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     # rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
     # rates = [0.05]
@@ -278,11 +279,11 @@ def main():
         print('Running experiment for rate=%.2f' % rate)
 
         env = {
-            'CUDA_VISIBLE_DEVICES': '4',
+            'CUDA_VISIBLE_DEVICES': '1',
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-82-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-95-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -297,7 +298,8 @@ def main():
         exps = []
         # for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
         for cache_ttl_value in [0]:
-            for pinned_memory_frac in [0.25, 0.5, 0.75]:
+            # for pinned_memory_frac in [0.0, 0.25, 0.5, 0.75]:
+            for pinned_memory_frac in [0.0, 0.25, 0.5, 0.75]:
                 exps.append(
                     {
                         "execute_workload_fn": exec_workload_fn,
@@ -319,9 +321,9 @@ def main():
                         'enable_returning_queue': enable_returning_queue,
                         'returning_queue_sched_policy': "prio",
                         'returning_queue_sort_freq': 10.0,
-                        'enable_swap_budget': enable_swap_budget,
-                        'swap_budget_type': swap_budget_type,
-                        'swap_budget_frac': swap_budget_frac,
+                        'enable_swap_budget': False,
+                        'swap_budget_type': "fixed",
+                        'swap_budget_frac': 0.0,
                         'enable_eager_evict': True,
                         'cache_pin_ttl': cache_ttl_value,
                         'pinned_memory_frac': pinned_memory_frac
@@ -348,7 +350,7 @@ def main():
                         'enable_returning_queue': enable_returning_queue,
                         'returning_queue_sched_policy': "prio",
                         'returning_queue_sort_freq': 10.0,
-                        'enable_swap_budget': True,
+                        'enable_swap_budget': False,
                         'swap_budget_type': "fixed",
                         'swap_budget_frac': 0.0,
                         'enable_eager_evict': True,

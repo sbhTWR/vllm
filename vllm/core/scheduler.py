@@ -1638,6 +1638,8 @@ class Scheduler:
                     running_queue[-1]) > self._get_priority(seq_group):
                 #Only preempt if waiting sequence cannot be allocated
                 can_allocate = self.block_manager.can_allocate(seq_group)
+                # logger.info("[DEBUG] scheduler: can_allocate=%s for seq_group=%s", 
+                #            can_allocate.name, seq_group.request_id)
                 if (num_new_tokens_uncached > 0
                         and can_allocate == AllocStatus.OK
                         and budget.can_schedule(
@@ -1768,12 +1770,17 @@ class Scheduler:
             can_allocate = self.block_manager.can_allocate(
                 seq_group, num_lookahead_slots=num_lookahead_slots)
 
+            logger.info("[DEBUG] _schedule_prefills: can_allocate=%s for seq_group=%s", 
+                       can_allocate.name, seq_group.request_id)
+
             if can_allocate == AllocStatus.LATER:
                 # try eviction proactively
                 self.resolve_deadlock = True
                 self.memory_pressure_evict_if_necessary()
                 can_allocate = self.block_manager.can_allocate(
                     seq_group, num_lookahead_slots=num_lookahead_slots)
+                logger.info("[DEBUG] _schedule_prefills: after eviction, can_allocate=%s for seq_group=%s", 
+                           can_allocate.name, seq_group.request_id)
 
             if can_allocate == AllocStatus.LATER:
                 break
@@ -1820,6 +1827,18 @@ class Scheduler:
             if curr_loras is not None and lora_int_id > 0:
                 curr_loras.add(lora_int_id)
             waiting_queue.popleft()
+            
+            logger.info("[DEBUG] _schedule_prefills: ABOUT TO ALLOCATE seq_group=%s, can_allocate=%s", 
+                       seq_group.request_id, can_allocate.name)
+            
+            # Check swap_scheduler state right before allocation
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                if hasattr(gpu_allocator, 'swap_scheduler'):
+                    logger.info("[DEBUG] _schedule_prefills: BEFORE ALLOCATION - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                               gpu_allocator.swap_scheduler.num_blocks, 
+                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+            
             self._allocate_and_set_running(seq_group)
 
             if enable_chunking and self.scheduler_config.is_multi_step:
@@ -2035,8 +2054,30 @@ class Scheduler:
             
             self.memory_pressure_evict_if_necessary()
 
+            logger.info("[DEBUG] _schedule_default: ABOUT TO CALL get_and_reset_swaps")
+            
+            # Check swap_scheduler state before get_and_reset_swaps
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                if hasattr(gpu_allocator, 'swap_scheduler'):
+                    logger.info("[DEBUG] _schedule_default: BEFORE get_and_reset_swaps - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                               gpu_allocator.swap_scheduler.num_blocks, 
+                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+
             new_swap_out, new_swap_in = \
                     self.block_manager.get_and_reset_swaps(time.time())
+            
+            logger.info("[DEBUG] _schedule_default: AFTER get_and_reset_swaps - new_swap_out=%d, new_swap_in=%d", 
+                       len(new_swap_out), len(new_swap_in))
+            
+            # Check swap_scheduler state after get_and_reset_swaps
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                if hasattr(gpu_allocator, 'swap_scheduler'):
+                    logger.info("[DEBUG] _schedule_default: AFTER get_and_reset_swaps - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                               gpu_allocator.swap_scheduler.num_blocks, 
+                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+            
             for src, dst in new_swap_out:
                 elastic_swap_blocks_to_swap_out.extend((src, dst))
             for src, dst in new_swap_in:

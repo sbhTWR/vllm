@@ -1198,6 +1198,17 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             pinned_blocks = min(self.swap_scheduler.pinned_blocks_thresh, 
                                self.swap_scheduler.num_blocks)
             num_free_blocks = max(0, num_free_blocks - pinned_blocks)
+            # logger.info("[DEBUG] get_num_free_blocks: hashless=%d, swap_scheduler=%d, pinned_blocks=%d, final=%d", 
+            #            self._hashless_allocator.get_num_free_blocks(),
+            #            self.swap_scheduler.num_blocks,
+            #            pinned_blocks,
+            #            num_free_blocks)
+        else:
+            # logger.info("[DEBUG] get_num_free_blocks: hashless=%d, swap_scheduler=%d, final=%d (no pinned_blocks_thresh)", 
+            #            self._hashless_allocator.get_num_free_blocks(),
+            #            self.swap_scheduler.num_blocks,
+            #            num_free_blocks)
+            pass
 
         return num_free_blocks
         

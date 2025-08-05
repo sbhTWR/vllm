@@ -225,13 +225,19 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
             device=Device.GPU)
 
+        logger.info("[elasticswap] can_allocate: num_required_blocks=%d num_free_gpu_blocks=%d" 
+                                % (num_required_blocks, num_free_gpu_blocks))
+
         # Use watermark to avoid frequent cache eviction.
         if (self.num_total_gpu_blocks - num_required_blocks
                 < self.watermark_blocks):
+            # logger.info("[DEBUG] can_allocate: returning NEVER (insufficient total blocks)")
             return AllocStatus.NEVER
         if num_free_gpu_blocks - num_required_blocks >= self.watermark_blocks:
+            # logger.info("[DEBUG] can_allocate: returning OK (sufficient free blocks)")
             return AllocStatus.OK
         else:
+            # logger.info("[DEBUG] can_allocate: returning LATER (insufficient free blocks)")
             return AllocStatus.LATER
 
     def _allocate_sequence(self, seq: Sequence) -> BlockTable:
@@ -259,6 +265,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         return block_table
 
     def allocate(self, seq_group: SequenceGroup) -> None:
+        # logger.info("[DEBUG] allocate: starting allocation for seq_group=%s", seq_group.request_id)
         
         with AllocationContextManager(self.block_allocator, seq_group):
 
