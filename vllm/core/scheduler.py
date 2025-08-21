@@ -927,6 +927,7 @@ class Scheduler:
             swap_budget_type=self.scheduler_config.swap_budget_type,
             swap_budget_frac=self.scheduler_config.swap_budget_frac,
             pinned_memory_frac=self.cache_config.pinned_memory_frac,
+            enable_cache_heirarchy=self.cache_config.enable_cache_heirarchy,
             )
 
         # Sequence groups in the WAITING state.
@@ -1702,6 +1703,7 @@ class Scheduler:
         Returns:
             SchedulerPrefillOutputs.
         """
+        # logger.info("[elasticswap] _schedule_prefills: queue=%s" % queue)
         ignored_seq_groups: List[SequenceGroup] = []
         seq_groups: List[ScheduledSequenceGroup] = []
 
@@ -1770,8 +1772,8 @@ class Scheduler:
             can_allocate = self.block_manager.can_allocate(
                 seq_group, num_lookahead_slots=num_lookahead_slots)
 
-            logger.info("[DEBUG] _schedule_prefills: can_allocate=%s for seq_group=%s", 
-                       can_allocate.name, seq_group.request_id)
+            # logger.info("[DEBUG] _schedule_prefills: can_allocate=%s for seq_group=%s", 
+            #            can_allocate.name, seq_group.request_id)
 
             if can_allocate == AllocStatus.LATER:
                 # try eviction proactively
@@ -1779,8 +1781,8 @@ class Scheduler:
                 self.memory_pressure_evict_if_necessary()
                 can_allocate = self.block_manager.can_allocate(
                     seq_group, num_lookahead_slots=num_lookahead_slots)
-                logger.info("[DEBUG] _schedule_prefills: after eviction, can_allocate=%s for seq_group=%s", 
-                           can_allocate.name, seq_group.request_id)
+                # logger.info("[DEBUG] _schedule_prefills: after eviction, can_allocate=%s for seq_group=%s", 
+                #            can_allocate.name, seq_group.request_id)
 
             if can_allocate == AllocStatus.LATER:
                 break
@@ -1927,6 +1929,8 @@ class Scheduler:
 
             prefills_returning = SchedulerPrefillOutputs.create_empty()
 
+            # logger.info("[elasticswap] ret_queue_sched_policy=%s" % self.ret_queue_sched_policy)
+
             if self.ret_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
 
                 # logger.info("[elasticswap] scheduling prio --> returning; waiting")
@@ -1968,10 +1972,19 @@ class Scheduler:
                                                 queue=self.returning)
 
                 self.ret_queue_turn = 1 - self.ret_queue_turn
+            else:
+                # logger.info("[elasticswap] scheduling just prefills")
+                prefills = self._schedule_prefills(budget,
+                                                curr_loras,
+                                                enable_chunking=False,
+                                                queue=self.waiting)
 
             # join the two outputs 
             prefills.seq_groups.extend(prefills_returning.seq_groups)
             prefills.ignored_seq_groups.extend(prefills_returning.ignored_seq_groups)
+
+        # logger.info("[DEBUG] _schedule_default: prefills.seq_groups=%d, prefills.ignored_seq_groups=%d", 
+        #            len(prefills.seq_groups), len(prefills.ignored_seq_groups))
 
         if len(prefills.seq_groups
                ) == 0 and self.scheduler_config.policy == "priority":
@@ -2054,7 +2067,7 @@ class Scheduler:
             
             self.memory_pressure_evict_if_necessary()
 
-            logger.info("[DEBUG] _schedule_default: ABOUT TO CALL get_and_reset_swaps")
+            # logger.info("[DEBUG] _schedule_default: ABOUT TO CALL get_and_reset_swaps")
             
             # Check swap_scheduler state before get_and_reset_swaps
             if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:

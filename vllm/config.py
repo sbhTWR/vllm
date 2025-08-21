@@ -1078,6 +1078,7 @@ class CacheConfig:
         swap_strategy: str = "swap-lru",
         cache_pin_ttl: Optional[int] = None,
         pinned_memory_frac: float = 0.25,
+        enable_cache_heirarchy: bool = True,
     ) -> None:
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -1093,6 +1094,7 @@ class CacheConfig:
         self.swap_strategy = swap_strategy
         self.cache_pin_ttl = cache_pin_ttl
         self.pinned_memory_frac = pinned_memory_frac
+        self.enable_cache_heirarchy = enable_cache_heirarchy
         self._verify_args()
         self._verify_cache_dtype()
         self._verify_prefix_caching()

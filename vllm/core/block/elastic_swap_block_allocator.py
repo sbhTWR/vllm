@@ -70,6 +70,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
         swap_budget_frac: float = 0.5,
         pinned_memory_frac: float = 0.25,
+        enable_cache_heirarchy: bool = True,
     ) -> DeviceAwareBlockAllocator:
         """Initiate CpuOffloadingBlockAllocator. Similar to 
         CpuGpuBlockAllocator.create() but only support prefix caching
@@ -124,10 +125,12 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         return CpuOffloadingBlockAllocator(
             cpu_block_allocator=cpu_allocator,
             gpu_block_allocator=gpu_allocator,
+            enable_cache_heirarchy=enable_cache_heirarchy,
         )
 
     def __init__(self, cpu_block_allocator: PrefixCachingBlockAllocator,
-                 gpu_block_allocator: PrefixCachingBlockAllocator):
+                 gpu_block_allocator: PrefixCachingBlockAllocator,
+                 enable_cache_heirarchy: bool = True):
         assert not (
             cpu_block_allocator.all_block_ids
             & gpu_block_allocator.all_block_ids
@@ -156,6 +159,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         self.priority_queue = []
 
         self.allocation_ctx = AllocationContext()
+
+        self.enable_cache_heirarchy = enable_cache_heirarchy
 
     def memory_pressure_evict(self, n, cache_pin_ttl=None):
         # if self._allocators[Device.GPU].swap_scheduler.swap_strategy == SwapStrategy.PERSIST:
@@ -224,7 +229,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             cpu_allocator: NaiveBlockAllocator = self._allocators[Device.CPU]
             swap_scheduler: FreeBlockSwapScheduler = gpu_allocator.swap_scheduler
 
-            gpu_block_id = None 
+            gpu_block_id = None
             block_metadata = None
             if swap_scheduler.num_blocks > 0:
                 gpu_block_id, block_metadata = swap_scheduler.evict(cache_pin_ttl=cache_pin_ttl)
@@ -449,32 +454,36 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         gpu_allocator._track_block_id(gpu_block_id, computed=False)
 
 
-        # 3. check if there is space in CPU cache for swapping out 
-            # if not, evict from cpu 
+        # 3. if cache heirarchy is enabled 
+            # check if there is space in CPU cache for swapping out 
+            # if not, evict from cpu
+             
+        
+        if self.enable_cache_heirarchy:
+            
+            if cpu_allocator.get_num_free_blocks() == 0:
+                # evict cpu block
+                num_evicted = self.evict_from_cpu_swap_evictor(1)
+                assert num_evicted >= 1, "num_evicted=%s" % num_evicted
+                assert cpu_allocator.get_num_free_blocks() > 0
+            # 4. then swap to cpu 
+            # allocate a block from cpu 
+            cpu_block_id = cpu_allocator._allocate_block_id_unsafe()
+            assert cpu_block_id is not None
 
-        if cpu_allocator.get_num_free_blocks() == 0:
-            # evict cpu block
-            num_evicted = self.evict_from_cpu_swap_evictor(1)
-            assert num_evicted >= 1, "num_evicted=%s" % num_evicted
-            assert cpu_allocator.get_num_free_blocks() > 0
-        # 4. then swap to cpu 
-        # allocate a block from cpu 
-        cpu_block_id = cpu_allocator._allocate_block_id_unsafe()
-        assert cpu_block_id is not None
+            now = time.time()
+            # init the swap process 
+            self.replace_block_ids_in_cached_allocator(
+                    gpu_block_id,
+                    cpu_block_id,
+                    block_metadata.content_hash,
+                    now,
+                    block_metadata,
+                    untrack_old=False
+                )
 
-        now = time.time()
-        # init the swap process 
-        self.replace_block_ids_in_cached_allocator(
-                gpu_block_id,
-                cpu_block_id,
-                block_metadata.content_hash,
-                now,
-                block_metadata,
-                untrack_old=False
-            )
-
-        # schedule swap
-        self._swap_mapping[gpu_block_id] = cpu_block_id
+            # schedule swap
+            self._swap_mapping[gpu_block_id] = cpu_block_id
 
         if return_block_id:
             return gpu_block_id

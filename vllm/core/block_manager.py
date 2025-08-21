@@ -97,6 +97,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
         swap_budget_frac: float = 0.5,
         pinned_memory_frac: float = 0.25,
+        enable_cache_heirarchy: bool = True,
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
@@ -132,6 +133,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             swap_budget_type=swap_budget_type,
             swap_budget_frac=swap_budget_frac,
             pinned_memory_frac=pinned_memory_frac,
+            enable_cache_heirarchy=enable_cache_heirarchy,
         )
 
         self.block_tables: Dict[SeqId, BlockTable] = {}

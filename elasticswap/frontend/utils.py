@@ -150,7 +150,7 @@ def run_experiment(
     enable_eager_evict = False,
     cache_pin_ttl = 5,
     pinned_memory_frac = 0.25,
-
+    enable_cache_heirarchy = True,
 ):
     retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
     exp_path = os.path.join(results_path, exp_name)
@@ -185,9 +185,11 @@ def run_experiment(
             "--cache-pin-ttl", str(cache_pin_ttl),
             "--pinned-memory-frac", str(pinned_memory_frac),
             "--preemption-mode", "recomputation",
-            "--max-num-seqs", "8",
+            "--max-num-seqs", "100",
+            "--block-size", "128",
             '--enable-prefix-caching',
-            '--enforce-eager'
+            '--enforce-eager',
+            '--enable-cache-heirarchy', str(enable_cache_heirarchy),
         ],
         output_filename=output_log_file,
         block_until_output="Uvicorn running",

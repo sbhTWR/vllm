@@ -43,9 +43,11 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
             p=[0.05, 0.1, 0.2, 0.2, 0.2, 0.15, 0.07, 0.03]
         ))
         
+        # num_interrupts = 20
+
         # 3. Interrupt durations
         # max_total_interrupt_time = 1 * request_size / 1000  # e.g., 15s for 30k
-        max_total_interrupt_time = 100.0  # seconds
+        max_total_interrupt_time = 200.0  # seconds
 
         if vary_interrupts:
             # Generate individual tool call durations
@@ -85,7 +87,7 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
             # num = rng.integers(1, 20)
             dur = int(num)
             workload = {
-                "context": lorem.words(request_size),
+                "context": lorem.words(request_size) + " Respond by repeating the text and then summarizing it.",
                 "num_interrupts": num_interrupts,
                 "interrupt_len": dur
             }
@@ -98,16 +100,16 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
 def generate_dag_constant_interrupt_len(context, num_interrupts, interrupt_len):
     dag = []
     # context = lorem.words(request_size)
-    llm = LLMCallNode(context + "Please summarize the following text")
+    llm = LLMCallNode(context + " Please ignore the previous text and generate a long story.")
     dag.append(llm)
     for _ in range(num_interrupts):
-        tool = ToolCallNode(lambda text: f"Length of the above text was: {len(text)}. Can you summarize it please?", 
+        tool = ToolCallNode(lambda text: f"Length of the above text was: {len(text)}. Please ignore the previous text and generate a long story.", 
                             expected_time=interrupt_len)
         tool.add_input("text", llm)
 
         dag.append(tool)
 
-        llm = LLMCallNode(prompt_template="Response from tool: {tool_res}. Can you process it?")
+        llm = LLMCallNode(prompt_template="Response from tool: {tool_res}. Please ignore the previous text and generate a long story.")
         llm.add_input("tool_res", tool)
 
         dag.append(llm)
@@ -244,7 +246,8 @@ def main():
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.4, 0.5, 0.6]
     # rates = [0.5, 0.7, 0.9, 1.0]
-    rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    # rates = [0.6, 0.7, 0.8, 0.9, 1.0]
+    rates = [0.5, 0.6, 0.7]
     # rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
     # rates = [0.05]
@@ -257,6 +260,7 @@ def main():
     enable_swap_budget = False
     swap_budget_type = "fixed"
     swap_budget_frac = 1
+    enable_cache_heirarchy = False
 
     for rate in rates:
         num_events = int(rate * t)
@@ -283,7 +287,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-95-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-113-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -298,8 +302,8 @@ def main():
         exps = []
         # for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
         for cache_ttl_value in [0]:
-            # for pinned_memory_frac in [0.0, 0.25, 0.5, 0.75]:
-            for pinned_memory_frac in [0.0, 0.25, 0.5, 0.75]:
+            for pinned_memory_frac in [0.0, 0.25]:
+            # for pinned_memory_frac in [0.0]:
                 exps.append(
                     {
                         "execute_workload_fn": exec_workload_fn,
@@ -310,7 +314,7 @@ def main():
                         'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
                         'tp_size': 1, 
                         'pp_size': 1, 
-                        'swap_space': 500,
+                        'swap_space': 200,
                         'evict_token_thresh': 99999999999,
                         'evict_token_count': 0,
                         'enable_chunked_prefill': False,
@@ -326,7 +330,8 @@ def main():
                         'swap_budget_frac': 0.0,
                         'enable_eager_evict': True,
                         'cache_pin_ttl': cache_ttl_value,
-                        'pinned_memory_frac': pinned_memory_frac
+                        'pinned_memory_frac': pinned_memory_frac,
+                        'enable_cache_heirarchy': enable_cache_heirarchy,
                     }
                 )
                 exps.append(
@@ -339,7 +344,7 @@ def main():
                         'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
                         'tp_size': 1, 
                         'pp_size': 1, 
-                        'swap_space': 500,
+                        'swap_space': 200,
                         'evict_token_thresh': 99999999999,
                         'evict_token_count': 0,
                         'enable_chunked_prefill': False,
@@ -355,7 +360,8 @@ def main():
                         'swap_budget_frac': 0.0,
                         'enable_eager_evict': True,
                         'cache_pin_ttl': cache_ttl_value,
-                        'pinned_memory_frac': pinned_memory_frac
+                        'pinned_memory_frac': pinned_memory_frac,
+                        'enable_cache_heirarchy': enable_cache_heirarchy,
                     }
                 )
 

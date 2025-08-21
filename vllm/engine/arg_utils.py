@@ -229,6 +229,9 @@ class EngineArgs:
 
     # pinned memory frac 
     pinned_memory_frac: float = 0.25
+
+    # enable cache hierarchy
+    enable_cache_heirarchy: bool = True
     
 
     def __post_init__(self):
@@ -1056,6 +1059,14 @@ class EngineArgs:
             nargs="?",
             const="True",
             help='.')
+        
+        parser.add_argument(
+            '--enable-cache-heirarchy',
+            action=StoreBoolean,
+            default=True,
+            nargs="?",
+            const="True",
+            help='.')
 
         parser.add_argument(
             '--retrify-log-file',
@@ -1263,6 +1274,7 @@ class EngineArgs:
             swap_strategy=self.swap_strategy,
             cache_pin_ttl=self.cache_pin_ttl,
             pinned_memory_frac=self.pinned_memory_frac,
+            enable_cache_heirarchy=self.enable_cache_heirarchy,
         )
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,
