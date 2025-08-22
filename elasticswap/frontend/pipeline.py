@@ -13,6 +13,40 @@ from node import Node, LLMCallNode, ToolCallNode, WhileLoopNode
 random.seed(42)
 np.random.seed(42)
 
+def sample_toolcall_duration(
+    rng=None,
+    p_long=0.15,
+    # short (baseline) distribution
+    short_mu=1.0, short_sigma=0.7, short_clip=(0.1, 20.0),
+    # long distribution
+    long_mu=15.0, long_sigma=0.9, long_clip=(20.0, 120.0),
+    # optional: enforce minimum for long calls
+    interrupt_length=None
+):
+    """
+    Sample a ToolCall duration with a two-component mixture.
+    Returns: (duration_seconds: float, is_long_call: bool)
+    """
+    rng = np.random.default_rng() if rng is None else rng
+    is_long = rng.random() < p_long
+
+    if not is_long:
+        dur = float(np.clip(
+            rng.lognormal(mean=np.log(short_mu), sigma=short_sigma),
+            short_clip[0], short_clip[1]
+        ))
+        return dur, False
+
+    low = long_clip[0]
+    if interrupt_length is not None:
+        low = max(low, float(interrupt_length))
+
+    dur = float(np.clip(
+        rng.lognormal(mean=np.log(long_mu), sigma=long_sigma),
+        low, long_clip[1]
+    ))
+    return dur, True
+
 def generate_variable_llm_toolcall_workload(num_requests: int, 
                                             seed: int = None, 
                                             vary_interrupts: bool = True):
@@ -52,11 +86,21 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
         if vary_interrupts:
             # Generate individual tool call durations
             durations = []
-            for _ in range(num_interrupts):
-                dur = float(np.clip(
-                    rng.lognormal(mean=np.log(1.0), sigma=0.7),
-                    0.1, 20.0
-                ))
+            # generate occasional long tool calls 
+            long_tool_call_prob = 0.4
+
+            for i in range(num_interrupts):
+                # if rng.random() < long_tool_call_prob:
+                #     dur = float(np.clip(
+                #         rng.lognormal(mean=np.log(1.0), sigma=0.7),
+                #         0.1, 20.0
+                #     ))
+                dur, is_long = sample_toolcall_duration(
+                    rng=rng,
+                    p_long=long_tool_call_prob,
+                    interrupt_length=max_total_interrupt_time / num_interrupts
+                )
+  
                 durations.append(dur)
             
             # Normalize total time if necessary
@@ -68,7 +112,7 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
                 durations = [round(d, 3) for d in durations]
             
             workload = {
-                "request_size": request_size,
+                "context": lorem.words(request_size) + " Respond by repeating the text and then summarizing it.",
                 "num_interrupts": num_interrupts,
                 "interrupt_lens": durations
             }
@@ -105,6 +149,31 @@ def generate_dag_constant_interrupt_len(context, num_interrupts, interrupt_len):
     for _ in range(num_interrupts):
         tool = ToolCallNode(lambda text: f"Length of the above text was: {len(text)}. Please ignore the previous text and generate a long story.", 
                             expected_time=interrupt_len)
+        tool.add_input("text", llm)
+
+        dag.append(tool)
+
+        llm = LLMCallNode(prompt_template="Response from tool: {tool_res}. Please ignore the previous text and generate a long story.")
+        llm.add_input("tool_res", tool)
+
+        dag.append(llm)
+
+    annotate_expected_durations(dag)
+
+    for node in dag:
+        print(f"Node: {node.name}, Expected Downstream Duration: {node.metadata.get('kv_reuse_expected_duration_s', 'N/A')} seconds")
+    
+    return dag
+
+
+def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens):
+    dag = []
+    # context = lorem.words(request_size)
+    llm = LLMCallNode(context + " Please ignore the previous text and generate a long story.")
+    dag.append(llm)
+    for i in range(num_interrupts):
+        tool = ToolCallNode(lambda text: f"Length of the above text was: {len(text)}. Please ignore the previous text and generate a long story.", 
+                            expected_time=interrupt_lens[i])
         tool.add_input("text", llm)
 
         dag.append(tool)
@@ -193,7 +262,10 @@ def execute_workload_variable_interrupts(port,
     # input()
     # generate DAG for each request 
     for request in requests:
-        dag = generate_dag_constant_interrupt_len(**request)
+        if 'interrupt_lens' in request:
+            dag = generate_dag_variable_interrupt_len(**request)
+        else:
+            dag = generate_dag_constant_interrupt_len(**request)
         dags.append(dag)
 
 
@@ -247,7 +319,7 @@ def main():
     # rates = [0.4, 0.5, 0.6]
     # rates = [0.5, 0.7, 0.9, 1.0]
     # rates = [0.6, 0.7, 0.8, 0.9, 1.0]
-    rates = [0.5, 0.6, 0.7]
+    rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     # rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
     # rates = [0.05]
@@ -273,7 +345,7 @@ def main():
         requests = generate_variable_llm_toolcall_workload(
             num_requests=num_requests,
             seed=42,
-            vary_interrupts=False
+            vary_interrupts=True
         )
 
         print("---- Generated requests -----")
@@ -283,11 +355,11 @@ def main():
         print('Running experiment for rate=%.2f' % rate)
 
         env = {
-            'CUDA_VISIBLE_DEVICES': '1',
+            'CUDA_VISIBLE_DEVICES': '7',
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-113-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-114-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -302,7 +374,7 @@ def main():
         exps = []
         # for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
         for cache_ttl_value in [0]:
-            for pinned_memory_frac in [0.0, 0.25]:
+            for pinned_memory_frac in [0.0, 0.25, 0.5]:
             # for pinned_memory_frac in [0.0]:
                 exps.append(
                     {
@@ -314,7 +386,7 @@ def main():
                         'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
                         'tp_size': 1, 
                         'pp_size': 1, 
-                        'swap_space': 200,
+                        'swap_space': 1,
                         'evict_token_thresh': 99999999999,
                         'evict_token_count': 0,
                         'enable_chunked_prefill': False,
@@ -328,7 +400,7 @@ def main():
                         'enable_swap_budget': False,
                         'swap_budget_type': "fixed",
                         'swap_budget_frac': 0.0,
-                        'enable_eager_evict': True,
+                        'enable_eager_evict': False,
                         'cache_pin_ttl': cache_ttl_value,
                         'pinned_memory_frac': pinned_memory_frac,
                         'enable_cache_heirarchy': enable_cache_heirarchy,
@@ -344,23 +416,23 @@ def main():
                         'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
                         'tp_size': 1, 
                         'pp_size': 1, 
-                        'swap_space': 200,
+                        'swap_space': 1,
                         'evict_token_thresh': 99999999999,
                         'evict_token_count': 0,
                         'enable_chunked_prefill': False,
                         'fr_policy': "default",
                         'swap_strategy': "swap-lru",
-                        'block_allocator': "CpuOffloadingBlockAllocator",
+                        'block_allocator': "CpuGpuBlockAllocator",
                         'port': 8000,
-                        'enable_returning_queue': enable_returning_queue,
+                        'enable_returning_queue': False,
                         'returning_queue_sched_policy': "prio",
                         'returning_queue_sort_freq': 10.0,
                         'enable_swap_budget': False,
                         'swap_budget_type': "fixed",
                         'swap_budget_frac': 0.0,
-                        'enable_eager_evict': True,
+                        'enable_eager_evict': False,
                         'cache_pin_ttl': cache_ttl_value,
-                        'pinned_memory_frac': pinned_memory_frac,
+                        'pinned_memory_frac': 0.0,
                         'enable_cache_heirarchy': enable_cache_heirarchy,
                     }
                 )
