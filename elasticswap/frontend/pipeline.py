@@ -1,5 +1,6 @@
 import asyncio
 import os
+import json
 import random
 import shutil
 import time
@@ -10,8 +11,27 @@ from utils import run_experiment, ensure_dir
 from executor import AsyncDAGExecutor, MultiDAGExecutor, annotate_expected_durations
 from node import Node, LLMCallNode, ToolCallNode, WhileLoopNode
 
+DEBUG = os.environ.get('DEBUG', '0') == '1'
+
 random.seed(42)
 np.random.seed(42)
+
+
+def sample_toolcall_duration_fixed(
+    rng=None,
+    p_long=0.15,
+    interrupt_length=None
+):
+    rng = np.random.default_rng() if rng is None else rng
+    is_long = rng.random() < p_long
+
+    if not is_long:
+        num = rng.integers(1, 900)
+        num = num / 100.0
+    else:
+        num = rng.integers(8, 15)
+    
+    return float(num), is_long
 
 def sample_toolcall_duration(
     rng=None,
@@ -47,9 +67,60 @@ def sample_toolcall_duration(
     ))
     return dur, True
 
+def generate_variable_llm_toolcall_with_variable_request_size(num_requests: int, 
+                                                              seed: int = None, 
+                                                              vary_interrupts: bool = True):
+    """
+    Generate LLM requests in the following way:
+    - request_size: bi-modal: 1k and 30k
+    Smaller requests have smaller duration of ToolCalls but have more interrupts
+    Larger requests have larger duration of ToolCalls but have fewer interrupts
+    - num_interrupts: 
+    - interrupt_lens: 
+    - p_large_request: probability of generating a large request
+    """
+    if seed is not None:
+        rng = np.random.default_rng(seed=seed)
+
+    p_large_request = 0.5
+    is_large_request = False
+    workloads = []
+
+    if rng.random() < p_large_request:
+        is_large_request = True
+    else:
+        is_large_request = False
+
+    for i in range(num_requests):
+        if is_large_request:
+            request_size = 30000
+            num_interrupts = 5
+            interrupt_lens = [10.0] * num_interrupts
+        else:
+            request_size = 1000
+            num_interrupts = 20
+            interrupt_lens = [1.0] * num_interrupts
+
+        # 1. Request size: log-normal distribution, capped at 30k
+        # request_size = int(np.clip(
+        #     np.random.lognormal(mean=np.log(15000), sigma=0.5),
+        #     8000, 30000
+        # ))
+
+        workload = {
+            "context": lorem.words(request_size) + " Respond by repeating the text and then summarizing it.",
+            "num_interrupts": num_interrupts,
+            "interrupt_lens": interrupt_lens
+        }
+
+        workloads.append(workload)
+
+    return workloads
+
 def generate_variable_llm_toolcall_workload(num_requests: int, 
                                             seed: int = None, 
-                                            vary_interrupts: bool = True):
+                                            vary_interrupts: bool = True,
+                                            num_interrupts: int = None):
     """
     Generate a list of LLM request parameter dicts:
     - request_size: Number of tokens (capped at 30,000)
@@ -61,6 +132,8 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
         rng = np.random.default_rng(seed=seed)
     
     workloads = []
+
+    num_interrupts_list = rng.integers(1, 51, size=num_requests)
     
     for i in range(num_requests):
         # 1. Request size: log-normal distribution, capped at 30k
@@ -72,10 +145,13 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
         request_size = 30000
         
         # 2. Number of tool call interrupts
-        num_interrupts = int(np.random.choice(
-            [1, 2, 3, 4, 5, 6, 8, 10],
-            p=[0.05, 0.1, 0.2, 0.2, 0.2, 0.15, 0.07, 0.03]
-        ))
+        # if num_interrupts is None:
+        #     num_interrupts = int(np.random.choice(
+        #     [1, 2, 3, 4, 5, 6, 8, 10],
+        #     p=[0.05, 0.1, 0.2, 0.2, 0.2, 0.15, 0.07, 0.03]
+        # ))
+            # num_interrupts = rng.integers(40, 60)
+        num_interrupts = num_interrupts_list[i]
         
         # num_interrupts = 20
 
@@ -87,7 +163,7 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
             # Generate individual tool call durations
             durations = []
             # generate occasional long tool calls 
-            long_tool_call_prob = 0.4
+            long_tool_call_prob = 0.2
 
             for i in range(num_interrupts):
                 # if rng.random() < long_tool_call_prob:
@@ -95,7 +171,7 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
                 #         rng.lognormal(mean=np.log(1.0), sigma=0.7),
                 #         0.1, 20.0
                 #     ))
-                dur, is_long = sample_toolcall_duration(
+                dur, is_long = sample_toolcall_duration_fixed(
                     rng=rng,
                     p_long=long_tool_call_prob,
                     interrupt_length=max_total_interrupt_time / num_interrupts
@@ -124,9 +200,10 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
             # ))
             # dur = min(dur, max_total_interrupt_time / num_interrupts)
             if i % 2 == 0:
-                num = rng.integers(1, 20)
+                num = rng.integers(1, 300)
+                num = num // 100
             else:
-                num = rng.integers(50, 100)
+                num = rng.integers(3, 10)
 
             # num = rng.integers(1, 20)
             dur = int(num)
@@ -140,6 +217,84 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
     
     return workloads
 
+
+
+def generate_variable_llm_toolcall_workload_small_interrupts(num_requests: int, 
+                                            seed: int = None, 
+                                            num_interrupts: int = None):
+    """
+    Generate a list of LLM request parameter dicts:
+    - request_size: Number of tokens (capped at 30,000)
+    - num_interrupts: Number of tool calls
+    - interrupt_len: (if vary_interrupts=False) Constant duration for all tool calls
+    - interrupt_lens: (if vary_interrupts=True) List of durations for each tool call
+    """
+    if seed is not None:
+        rng = np.random.default_rng(seed=seed)
+    
+    workloads = []
+    
+    for i in range(num_requests):
+        # 1. Request size: log-normal distribution, capped at 30k
+        # request_size = int(np.clip(
+        #     np.random.lognormal(mean=np.log(15000), sigma=0.5),
+        #     8000, 30000
+        # ))
+
+        request_size = 30000
+        
+        # 2. Number of tool call interrupts
+        if num_interrupts is None:
+            num_interrupts = int(np.random.choice(
+            [1, 2, 3, 4, 5, 6, 8, 10],
+            p=[0.05, 0.1, 0.2, 0.2, 0.2, 0.15, 0.07, 0.03]
+        ))
+        
+        # num = 0.5
+        # num = rng.integers(1, 20)
+        dur = 10
+        durs = [dur] * num_interrupts
+        workload = {
+            "context": lorem.words(request_size) + " Respond by repeating the text and then summarizing it.",
+            "num_interrupts": num_interrupts,
+            "interrupt_lens": durs
+        }
+        
+        workloads.append(workload)
+    
+    return workloads
+
+
+def generate_variable_llm_toolcall_workload_multi_tenant(num_requests: int, 
+                                                seed: int = None, 
+                                                vary_interrupts: bool = True):
+    """
+    Generate a list of LLM request parameter dicts:
+    - request_size: Number of tokens (capped at 30,000)
+    - num_interrupts: Number of tool calls
+    - interrupt_len: (if vary_interrupts=False) Constant duration for all tool calls
+    - interrupt_lens: (if vary_interrupts=True) List of durations for each tool call
+    """
+
+
+    if seed is not None:
+        rng = np.random.default_rng(seed=seed)
+    
+    # this is similar to single tenent case except that 
+    # depending on the a probability, the request can either be single llmcall
+    # or a sequence of llmcalls and toolcalls
+
+    workloads = []
+
+    for i in range(num_requests):
+        if rng.random() < 0.3:
+            workload = generate_variable_llm_toolcall_workload_small_interrupts(num_requests=1, seed=seed)
+            workloads.extend(workload)
+        else:
+            workload = generate_variable_llm_toolcall_workload(num_requests=1, seed=seed, vary_interrupts=vary_interrupts, num_interrupts=0)
+            workloads.extend(workload)
+    
+    return workloads
 
 def generate_dag_constant_interrupt_len(context, num_interrupts, interrupt_len):
     dag = []
@@ -166,7 +321,7 @@ def generate_dag_constant_interrupt_len(context, num_interrupts, interrupt_len):
     return dag
 
 
-def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens):
+def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens, is_batch_request=False):
     dag = []
     # context = lorem.words(request_size)
     llm = LLMCallNode(context + " Please ignore the previous text and generate a long story.")
@@ -183,7 +338,7 @@ def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens)
 
         dag.append(llm)
 
-    annotate_expected_durations(dag)
+    annotate_expected_durations(dag, is_batch_request=is_batch_request)
 
     for node in dag:
         print(f"Node: {node.name}, Expected Downstream Duration: {node.metadata.get('kv_reuse_expected_duration_s', 'N/A')} seconds")
@@ -191,24 +346,28 @@ def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens)
     return dag
 
 async def run_dags_with_arrival_times(dags, 
-                                      arrival_times):
+                                      arrival_times,
+                                      port=8000,
+                                      wait_for_all_done=False):
     """
     Init multi executor 
     """
-
-    executor = MultiDAGExecutor()
+    executor = MultiDAGExecutor(port=port)
     # Start background executor loop
     asyncio.create_task(executor.run_forever())
 
     agent_id = 0
     for dag, arrival_time in zip(dags, arrival_times):
-        time.sleep(arrival_time)
+        print("sleeping for %f seconds" % arrival_time)
+        # time.sleep(arrival_time)
+        await asyncio.sleep(arrival_time)
         print("submitting dag=%d" % agent_id)
         await executor.submit_dag(dag, "agent_%d" % agent_id)
         agent_id += 1 
 
-    executor.shutdown()
-    await executor.await_all_done()
+    executor.shutdown(drain=wait_for_all_done)
+    # if wait_for_all_done:
+    #     await executor.await_all_done()
 
     print("All finished DAGs")
 
@@ -233,10 +392,13 @@ async def run_dags_batch(dags):
 
     print("All finished DAGs")
 
-def execute_workload_variable_interrupts(port, 
+def execute_workload_variable_interrupts(
                                          requests,
                                          arrival_times,
-                                         seed=42):
+                                         seed=42,
+                                         multi_tenant=False,
+                                         port=8000, 
+                                         wait_for_all_done=False):
     
     # rng = np.random.default_rng(seed=seed)
     dags = []
@@ -261,16 +423,23 @@ def execute_workload_variable_interrupts(port,
 
     # input()
     # generate DAG for each request 
-    for request in requests:
+    for i, request in enumerate(requests):
+        is_batch_request = (i % 2 == 0) and multi_tenant
         if 'interrupt_lens' in request:
-            dag = generate_dag_variable_interrupt_len(**request)
+            dag = generate_dag_variable_interrupt_len(**request, is_batch_request=is_batch_request)
         else:
-            dag = generate_dag_constant_interrupt_len(**request)
+            dag = generate_dag_constant_interrupt_len(**request, is_batch_request=is_batch_request)
         dags.append(dag)
 
+    if DEBUG:
+        return
 
     # asyncio.run(run_dags_batch(dags))
-    asyncio.run(run_dags_with_arrival_times(dags, arrival_times))
+    asyncio.run(run_dags_with_arrival_times(
+                    dags, 
+                    arrival_times, 
+                    port,
+                    wait_for_all_done=wait_for_all_done))
 
 def main():
 
@@ -313,13 +482,28 @@ def main():
 
     # choose everything in variable fashion
     rng = np.random.default_rng(seed=42)
-    # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+    # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 
+    #         0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 
+    #         0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+    # rates = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+    rates = [0.1]
+
+    # rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0, 3.0, 4.0, 5.0]
+
+    # rates = [0.2]
+    # rates = [0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+    # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.2, 0.3, 0.4, 0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.4, 0.5, 0.6]
     # rates = [0.5, 0.7, 0.9, 1.0]
     # rates = [0.6, 0.7, 0.8, 0.9, 1.0]
-    rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    # rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0,\
+    #      1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
     # rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
     # rates = [0.05]
@@ -327,12 +511,17 @@ def main():
     # rates = [0.2]
     # rates = [0.04]
     # rates = [0.1]
-    t = 100
-    enable_returning_queue = True
+    t = 1200
+    # enable_returning_queue = True
     enable_swap_budget = False
     swap_budget_type = "fixed"
     swap_budget_frac = 1
     enable_cache_heirarchy = False
+    multi_tenant = False
+    port = 8005
+    max_num_seqs = 200
+    cuda_device = 4
+    wait_for_all_done = False
 
     for rate in rates:
         num_events = int(rate * t)
@@ -342,39 +531,83 @@ def main():
         arrival_times = list(exp_times)
         num_requests = len(arrival_times)
 
+        
+        # uncomment this to use the single tenant workload
         requests = generate_variable_llm_toolcall_workload(
             num_requests=num_requests,
             seed=42,
-            vary_interrupts=True
+            vary_interrupts=True,
+            num_interrupts=None
         )
+
+        # uncomment this to use the multi tenant workload
+        # requests = generate_variable_llm_toolcall_workload_multi_tenant(
+        #     num_requests=num_requests,
+        #     seed=42,
+        #     vary_interrupts=True
+        # )
+
+        # requests = generate_variable_llm_toolcall_with_variable_request_size(
+        #     num_requests=num_requests,
+        #     seed=42,
+        #     vary_interrupts=True
+        # )
 
         print("---- Generated requests -----")
         # for request in requests:
             
 
         print('Running experiment for rate=%.2f' % rate)
-
         env = {
-            'CUDA_VISIBLE_DEVICES': '7',
+            'CUDA_VISIBLE_DEVICES': str(cuda_device),
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-114-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-142-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
         ensure_dir(abs_path)
         copied_script_name = "pipeline.py"
         shutil.copy(__file__, os.path.join(abs_path, copied_script_name))
+
+
+        requests_meta = []
+
+        for i, request in enumerate(requests):
+            req_size = len(request['context'].split()) if 'context' in request else None
+            if "interrupt_lens" in request:
+                num_interrupts = len(request['interrupt_lens'])
+                durations = list(request['interrupt_lens'])
+            else:
+                num_interrupts = request['num_interrupts']
+                durations = [request['interrupt_len']] * num_interrupts
+
+            requests_meta.append({
+                'id': i,
+                'request_size': req_size,
+                'num_interrupts': num_interrupts,
+                'interrupt_durations': durations
+                })
+            
+        with open(os.path.join(abs_path, 'requests_meta.json'), 'w') as f:
+            json.dump({
+                "arrival_times": arrival_times,
+                "requests_meta": requests_meta
+            }, f, indent=2)
+
         exec_workload_fn = partial(execute_workload_variable_interrupts,
                                    requests=requests,
                                    arrival_times=arrival_times,
-                                   seed=42)
+                                   seed=42,
+                                   multi_tenant=multi_tenant,
+                                   port=port,
+                                   wait_for_all_done=wait_for_all_done)
 
         exps = []
         # for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
         for cache_ttl_value in [0]:
-            for pinned_memory_frac in [0.0, 0.25, 0.5]:
+            for pinned_memory_frac in [0.0]:
             # for pinned_memory_frac in [0.0]:
                 exps.append(
                     {
@@ -389,14 +622,14 @@ def main():
                         'swap_space': 1,
                         'evict_token_thresh': 99999999999,
                         'evict_token_count': 0,
-                        'enable_chunked_prefill': False,
+                        'enable_chunked_prefill': True,
                         'fr_policy': "default",
                         'swap_strategy': "swap-hints",
                         'block_allocator': "CpuOffloadingBlockAllocator",
-                        'port': 8000,
-                        'enable_returning_queue': enable_returning_queue,
+                        'port': port,
+                        'enable_returning_queue': False, 
                         'returning_queue_sched_policy': "prio",
-                        'returning_queue_sort_freq': 10.0,
+                        'returning_queue_sort_freq': 99999999999,
                         'enable_swap_budget': False,
                         'swap_budget_type': "fixed",
                         'swap_budget_frac': 0.0,
@@ -404,6 +637,8 @@ def main():
                         'cache_pin_ttl': cache_ttl_value,
                         'pinned_memory_frac': pinned_memory_frac,
                         'enable_cache_heirarchy': enable_cache_heirarchy,
+                        'max_num_seqs': max_num_seqs,
+                        'debug': DEBUG,
                     }
                 )
                 exps.append(
@@ -419,14 +654,14 @@ def main():
                         'swap_space': 1,
                         'evict_token_thresh': 99999999999,
                         'evict_token_count': 0,
-                        'enable_chunked_prefill': False,
+                        'enable_chunked_prefill': True,
                         'fr_policy': "default",
                         'swap_strategy': "swap-lru",
                         'block_allocator': "CpuGpuBlockAllocator",
-                        'port': 8000,
+                        'port': port,
                         'enable_returning_queue': False,
                         'returning_queue_sched_policy': "prio",
-                        'returning_queue_sort_freq': 10.0,
+                        'returning_queue_sort_freq': 99999999999,
                         'enable_swap_budget': False,
                         'swap_budget_type': "fixed",
                         'swap_budget_frac': 0.0,
@@ -434,6 +669,8 @@ def main():
                         'cache_pin_ttl': cache_ttl_value,
                         'pinned_memory_frac': 0.0,
                         'enable_cache_heirarchy': enable_cache_heirarchy,
+                        'max_num_seqs': max_num_seqs,
+                        'debug': DEBUG,
                     }
                 )
 

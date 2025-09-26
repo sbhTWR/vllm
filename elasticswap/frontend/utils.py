@@ -151,6 +151,8 @@ def run_experiment(
     cache_pin_ttl = 5,
     pinned_memory_frac = 0.25,
     enable_cache_heirarchy = True,
+    max_num_seqs = 100,
+    debug = False,
 ):
     retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
     exp_path = os.path.join(results_path, exp_name)
@@ -160,7 +162,8 @@ def run_experiment(
     output_log_file = vllm_log_file.split(".")[0] 
     # kill anything on port 
     # run_sync(['killport', str(port)])
-    
+    if debug:
+        return
     p, p_stdout, p_stderr, t_stdout, t_stderr = run_async(
         [
             "python3", "-m", "vllm.entrypoints.openai.api_server",
@@ -185,11 +188,12 @@ def run_experiment(
             "--cache-pin-ttl", str(cache_pin_ttl),
             "--pinned-memory-frac", str(pinned_memory_frac),
             "--preemption-mode", "recomputation",
-            "--max-num-seqs", "100",
+            "--max-num-seqs", str(max_num_seqs),
             "--block-size", "128",
             '--enable-prefix-caching',
             '--enforce-eager',
             '--enable-cache-heirarchy', str(enable_cache_heirarchy),
+            "--port", str(port),
         ],
         output_filename=output_log_file,
         block_until_output="Uvicorn running",

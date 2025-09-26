@@ -42,6 +42,7 @@ class MultiDAGExecutor:
         self.queue = asyncio.Queue()
         self.pending_tasks = set()
         self._shutdown = False
+        self._drain_on_shutdown = True
 
     async def submit_dag(self, nodes: List[Node], dag_name: str):
         """Submit a new DAG to be executed."""
@@ -49,7 +50,7 @@ class MultiDAGExecutor:
 
     async def run_forever(self):
         """Run DAGs as they are submitted, until shutdown."""
-        while not self._shutdown or not self.queue.empty() or self.pending_tasks:
+        while (not self._shutdown) or (self._drain_on_shutdown and (not self.queue.empty() or self.pending_tasks)):
             try:
                 nodes, dag_name = await asyncio.wait_for(self.queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
@@ -64,16 +65,17 @@ class MultiDAGExecutor:
         
         print("All DAGs complete. Executor exiting.")
 
-    def shutdown(self):
+    def shutdown(self, drain: bool = True):
         """Request the executor loop to terminate."""
         self._shutdown = True
+        self._drain_on_shutdown = drain
 
     async def await_all_done(self):
         """Waits for all submitted DAGs to finish"""
         while self.pending_tasks or not self.queue.empty():
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
 
-def annotate_expected_durations(nodes: List[Node]):
+def annotate_expected_durations(nodes: List[Node], is_batch_request=False):
     memo = {}
 
     def dfs(node: Node) -> float:
@@ -86,7 +88,11 @@ def annotate_expected_durations(nodes: List[Node]):
             downstream_cost = dfs(downstream)
             max_time = max(max_time, downstream_cost)
 
-        node.metadata["kv_reuse_expected_duration_s"] = max_time
+        if is_batch_request:
+            node.metadata["kv_reuse_expected_duration_s"] = 9999999.0
+        else:
+            node.metadata["kv_reuse_expected_duration_s"] = max_time
+
         memo[node.name] = max_time
         return max_time
 

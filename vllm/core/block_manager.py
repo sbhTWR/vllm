@@ -181,9 +181,9 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                                             )
 
         assert total_uncached_blocks_required >= num_cached_blocks
-        # logger.info("[elasticswap] total=%d cached=%d" 
-        #             % (total_uncached_blocks_required, num_cached_blocks))
-        return total_uncached_blocks_required - num_cached_blocks
+        logger.info("[elasticswap] total=%d cached=%d" 
+                    % (total_uncached_blocks_required, num_cached_blocks))
+        return total_uncached_blocks_required - num_cached_blocks, num_cached_blocks
 
     def can_allocate(self,
                      seq_group: SequenceGroup,
@@ -200,7 +200,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
 
         if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
-            num_required_blocks = self.get_num_required_blocks_prefix_aware(
+            num_required_blocks, num_cached_blocks = self.get_num_required_blocks_prefix_aware(
                 seq.get_token_ids(),
                 block_size=self.block_size,
                 num_lookahead_slots=num_lookahead_slots,
@@ -211,6 +211,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                 block_size=self.block_size,
                 num_lookahead_slots=num_lookahead_slots,
             )
+
+            num_cached_blocks = 0
 
         if seq_group.is_encoder_decoder():
             encoder_seq = seq_group.get_encoder_seq()
@@ -224,8 +226,17 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             num_required_blocks = min(num_required_blocks,
                                       self.max_block_sliding_window)
 
-        num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
-            device=Device.GPU)
+        # num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
+        #     device=Device.GPU)
+        
+        if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
+            num_evictable_blocks = self.block_allocator._allocators[Device.GPU].swap_scheduler.num_blocks
+            num_hashless_blocks = self.block_allocator._allocators[Device.GPU]._hashless_allocator.get_num_free_blocks()
+            num_free_gpu_blocks = num_hashless_blocks + num_evictable_blocks - num_cached_blocks
+        else:
+            num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
+                            device=Device.GPU)
+           
 
         logger.info("[elasticswap] can_allocate: num_required_blocks=%d num_free_gpu_blocks=%d" 
                                 % (num_required_blocks, num_free_gpu_blocks))

@@ -1907,6 +1907,35 @@ class Scheduler:
         running_scheduled = SchedulerRunningOutputs.create_empty()
         swapped_in = SchedulerSwappedInOutputs.create_empty()
 
+        if self.cache_config.block_allocator != "CpuGpuBlockAllocator":
+            # check for cold cache vs hot cache. Cold cache is length of 
+            # length of evictable blocks. Hot cache is currently used blocks. 
+            # rest is length of hashless blocks.
+
+            # if the block is noy CpuGpuBlockAllocator, then it is length of 
+            # swap scheduler free table 
+
+            # we just want to print everything here to know the state of the cache
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                total_blocks = gpu_allocator._hashless_allocator.get_num_total_blocks()
+                free_blocks = gpu_allocator._hashless_allocator.get_num_free_blocks()
+                evictable_blocks = gpu_allocator.swap_scheduler.num_blocks
+                used_blocks = total_blocks - free_blocks - evictable_blocks
+                logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
+                           total_blocks, free_blocks, evictable_blocks, used_blocks)
+        else:
+            # we just want to print everything here to know the state of the cache
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                total_blocks = gpu_allocator._hashless_allocator.get_num_total_blocks()
+                free_blocks = gpu_allocator._hashless_allocator.get_num_free_blocks()
+                evictable_blocks = gpu_allocator.evictor.num_blocks
+                used_blocks = total_blocks - free_blocks - evictable_blocks
+                logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
+                           total_blocks, free_blocks, evictable_blocks, used_blocks)
+
+
         # If any requests are swapped, prioritized swapped requests.
         if not self.swapped:
             """
@@ -1944,6 +1973,7 @@ class Scheduler:
                                                 curr_loras,
                                                 enable_chunking=False,
                                                 queue=self.waiting)
+                
             
             elif self.ret_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
 
@@ -2139,6 +2169,37 @@ class Scheduler:
         prefills = SchedulerPrefillOutputs.create_empty()
         swapped_in = SchedulerSwappedInOutputs.create_empty()
 
+        """
+        TODO: Print the state of the cache (similar to _schedule_default)
+        """
+        if self.cache_config.block_allocator != "CpuGpuBlockAllocator":
+            # check for cold cache vs hot cache. Cold cache is length of 
+            # length of evictable blocks. Hot cache is currently used blocks. 
+            # rest is length of hashless blocks.
+
+            # if the block is noy CpuGpuBlockAllocator, then it is length of 
+            # swap scheduler free table 
+
+            # we just want to print everything here to know the state of the cache
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                total_blocks = gpu_allocator._hashless_allocator.get_num_total_blocks()
+                free_blocks = gpu_allocator._hashless_allocator.get_num_free_blocks()
+                evictable_blocks = gpu_allocator.swap_scheduler.num_blocks
+                used_blocks = total_blocks - free_blocks - evictable_blocks
+                logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
+                           total_blocks, free_blocks, evictable_blocks, used_blocks)
+        else:
+            # we just want to print everything here to know the state of the cache
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                total_blocks = gpu_allocator._hashless_allocator.get_num_total_blocks()
+                free_blocks = gpu_allocator._hashless_allocator.get_num_free_blocks()
+                evictable_blocks = gpu_allocator.evictor.num_blocks
+                used_blocks = total_blocks - free_blocks - evictable_blocks
+                logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
+                           total_blocks, free_blocks, evictable_blocks, used_blocks)
+
         # Decoding should be always scheduled first by fcfs.
         running_scheduled = self._schedule_running(budget,
                                                    curr_loras,
@@ -2159,16 +2220,77 @@ class Scheduler:
         """
         New version
         """
-        prefills_returning = self._schedule_prefills(budget,
-                                               curr_loras,
-                                               enable_chunking=True,
-                                               queue=self.returning)
-
-        prefills = self._schedule_prefills(budget,
-                                               curr_loras,
-                                               enable_chunking=True,
-                                               queue=self.waiting)
+        """
+        elasticswap: sort the returning queue 
+        """
+        if self.cache_config.block_allocator != "CpuGpuBlockAllocator":
+            now = time.time()
+            time_since_last_sort = now - self.ret_queue_last_sorted_time
             
+            if time_since_last_sort >= self.scheduler_config.returning_queue_sort_freq:
+                # logger.info("[elasticswap] sorting returning queue. Length=%d" 
+                #             % len(self.returning))
+                self.returning = deque(
+                sorted(self.returning, 
+                    key=lambda group: self._get_num_cached_blocks(group), 
+                    reverse=True)
+                )
+
+                self.ret_queue_last_sorted_time = now
+
+        prefills_returning = SchedulerPrefillOutputs.create_empty()
+
+        # logger.info("[elasticswap] ret_queue_sched_policy=%s" % self.ret_queue_sched_policy)
+
+        if self.ret_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
+
+            # logger.info("[elasticswap] scheduling prio --> returning; waiting")
+
+            prefills_returning = self._schedule_prefills(budget,
+                                            curr_loras,
+                                            enable_chunking=True,
+                                            queue=self.returning)
+
+            prefills = self._schedule_prefills(budget,
+                                            curr_loras,
+                                            enable_chunking=True,
+                                            queue=self.waiting)
+            
+        
+        elif self.ret_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
+
+            if self.ret_queue_turn == 0:
+                # logger.info("[elasticswap] scheduling roundrobin --> returning; waiting")
+                prefills_returning = self._schedule_prefills(budget,
+                                            curr_loras,
+                                            enable_chunking=True,
+                                            queue=self.returning)
+
+                prefills = self._schedule_prefills(budget,
+                                                curr_loras,
+                                                enable_chunking=True,
+                                                queue=self.waiting)
+            
+            else:
+                # logger.info("[elasticswap] scheduling roundrobin --> waiting; returning")
+                prefills = self._schedule_prefills(budget,
+                                            curr_loras,
+                                            enable_chunking=True,
+                                            queue=self.waiting)
+        
+                prefills_returning = self._schedule_prefills(budget,
+                                            curr_loras,
+                                            enable_chunking=True,
+                                            queue=self.returning)
+
+            self.ret_queue_turn = 1 - self.ret_queue_turn
+        else:
+            # logger.info("[elasticswap] scheduling just prefills")
+            prefills = self._schedule_prefills(budget,
+                                            curr_loras,
+                                            enable_chunking=True,
+                                            queue=self.waiting)
+
         # join the two outputs 
         prefills.seq_groups.extend(prefills_returning.seq_groups)
         prefills.ignored_seq_groups.extend(prefills_returning.ignored_seq_groups)
@@ -2227,20 +2349,45 @@ class Scheduler:
         )
 
         # NOTE(Kuntai): extend the swapping list for CPU offloading
+        """
+        TODO: Extend the swapping list for CPU offloading, similar to _schedule_default
+        """
         elastic_swap_blocks_to_swap_out = []
         elastic_swap_blocks_to_swap_in = []
+        
+        # logger.info("[elasticswap] block_allocator=%s" % self.cache_config.block_allocator)
+        if self.cache_config.block_allocator != "CpuGpuBlockAllocator":
+            
+            self.memory_pressure_evict_if_necessary()
 
-        new_swap_out, new_swap_in = \
-                self.block_manager.get_and_reset_swaps(time.time())
-        for src, dst in new_swap_out:
-            elastic_swap_blocks_to_swap_out.extend((src, dst))
-        for src, dst in new_swap_in:
-            elastic_swap_blocks_to_swap_in.extend((src, dst))
+            # logger.info("[DEBUG] _schedule_default: ABOUT TO CALL get_and_reset_swaps")
+            
+            # Check swap_scheduler state before get_and_reset_swaps
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                if hasattr(gpu_allocator, 'swap_scheduler'):
+                    logger.info("[DEBUG] _schedule_default: BEFORE get_and_reset_swaps - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                               gpu_allocator.swap_scheduler.num_blocks, 
+                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
 
-        # logger.info(
-                # "[elasticswap] Paused swap out: %s", paused_blocks_to_swap_out)
-
-        self.memory_pressure_evict_if_necessary()
+            new_swap_out, new_swap_in = \
+                    self.block_manager.get_and_reset_swaps(time.time())
+            
+            logger.info("[DEBUG] _schedule_default: AFTER get_and_reset_swaps - new_swap_out=%d, new_swap_in=%d", 
+                       len(new_swap_out), len(new_swap_in))
+            
+            # Check swap_scheduler state after get_and_reset_swaps
+            if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
+                gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
+                if hasattr(gpu_allocator, 'swap_scheduler'):
+                    logger.info("[DEBUG] _schedule_default: AFTER get_and_reset_swaps - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                               gpu_allocator.swap_scheduler.num_blocks, 
+                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+            
+            for src, dst in new_swap_out:
+                elastic_swap_blocks_to_swap_out.extend((src, dst))
+            for src, dst in new_swap_in:
+                elastic_swap_blocks_to_swap_in.extend((src, dst))
 
         return SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
