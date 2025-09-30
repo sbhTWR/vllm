@@ -1479,6 +1479,10 @@ class ReturningQueueSchedPolicy(enum.Enum):
     PRIO = enum.auto()
     ROUNDROBIN = enum.auto()
 
+class WsControlPolicy(enum.Enum):
+    WS_DEADLINE = enum.auto()
+    WS_HINT = enum.auto()
+
 @dataclass
 class SchedulerConfig:
     """Scheduler configuration."""
@@ -1568,6 +1572,12 @@ class SchedulerConfig:
     swap_budget_type: str = "fixed"
     swap_budget_frac: int = 0.5
 
+    # define working set 
+    enable_ws_control: bool = False
+    ws_control_policy: str = "ws-deadline"
+    ws_control_deadline: float = 1.0
+    ws_size_fraction: float = 1.1
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,
@@ -1647,6 +1657,13 @@ class SchedulerConfig:
                 ValueError("invalid ret queue policy type %s" 
                            % self.returning_queue_sched_policy)
 
+        if self.enable_ws_control:
+            if self.ws_control_policy == "ws-deadline":
+                self.ws_control_policy = WsControlPolicy.WS_DEADLINE
+            elif self.ws_control_policy == "ws-hint":
+                self.ws_control_policy = WsControlPolicy.WS_HINT
+            else:
+                ValueError("invalid ws control policy type %s" % self.ws_control_policy)
 
         self._verify_args()
 

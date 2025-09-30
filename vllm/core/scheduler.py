@@ -1679,6 +1679,7 @@ class Scheduler:
         curr_loras: Optional[Set[int]],
         enable_chunking: bool = False,
         queue: Optional[deque] = None,
+        check_ws: bool = False,
     ) -> SchedulerPrefillOutputs:
         """Schedule sequence groups that are in prefill stage.
 
@@ -1770,7 +1771,7 @@ class Scheduler:
 
             # If the sequence group cannot be allocated, stop.
             can_allocate = self.block_manager.can_allocate(
-                seq_group, num_lookahead_slots=num_lookahead_slots)
+                seq_group, num_lookahead_slots=num_lookahead_slots, check_ws=check_ws)
 
             # logger.info("[DEBUG] _schedule_prefills: can_allocate=%s for seq_group=%s", 
             #            can_allocate.name, seq_group.request_id)
@@ -1780,7 +1781,7 @@ class Scheduler:
                 self.resolve_deadlock = True
                 self.memory_pressure_evict_if_necessary()
                 can_allocate = self.block_manager.can_allocate(
-                    seq_group, num_lookahead_slots=num_lookahead_slots)
+                    seq_group, num_lookahead_slots=num_lookahead_slots, check_ws=check_ws)
                 # logger.info("[DEBUG] _schedule_prefills: after eviction, can_allocate=%s for seq_group=%s", 
                 #            can_allocate.name, seq_group.request_id)
 
@@ -1967,12 +1968,14 @@ class Scheduler:
                 prefills_returning = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
-                                                queue=self.returning)
+                                                queue=self.returning,
+                                                check_ws=False)
 
                 prefills = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
-                                                queue=self.waiting)
+                                                queue=self.waiting,
+                                                check_ws=True)
                 
             
             elif self.ret_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
@@ -1982,24 +1985,28 @@ class Scheduler:
                     prefills_returning = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
-                                                queue=self.returning)
+                                                queue=self.returning,
+                                                check_ws=False)
 
                     prefills = self._schedule_prefills(budget,
                                                     curr_loras,
                                                     enable_chunking=False,
-                                                    queue=self.waiting)
+                                                    queue=self.waiting,
+                                                    check_ws=True)
                 
                 else:
                     # logger.info("[elasticswap] scheduling roundrobin --> waiting; returning")
                     prefills = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
-                                                queue=self.waiting)
+                                                queue=self.waiting,
+                                                check_ws=True)
             
                     prefills_returning = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
-                                                queue=self.returning)
+                                                queue=self.returning,
+                                                check_ws=False)
 
                 self.ret_queue_turn = 1 - self.ret_queue_turn
             else:
@@ -2007,7 +2014,8 @@ class Scheduler:
                 prefills = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
-                                                queue=self.waiting)
+                                                queue=self.waiting,
+                                                check_ws=True)
 
             # join the two outputs 
             prefills.seq_groups.extend(prefills_returning.seq_groups)
@@ -2249,12 +2257,14 @@ class Scheduler:
             prefills_returning = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
-                                            queue=self.returning)
+                                            queue=self.returning,
+                                            check_ws=False)
 
             prefills = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
-                                            queue=self.waiting)
+                                            queue=self.waiting,
+                                            check_ws=True)
             
         
         elif self.ret_queue_sched_policy == ReturningQueueSchedPolicy.ROUNDROBIN:
@@ -2264,24 +2274,28 @@ class Scheduler:
                 prefills_returning = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
-                                            queue=self.returning)
+                                            queue=self.returning,
+                                            check_ws=False)
 
                 prefills = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=True,
-                                                queue=self.waiting)
+                                                queue=self.waiting,
+                                                check_ws=True)
             
             else:
                 # logger.info("[elasticswap] scheduling roundrobin --> waiting; returning")
                 prefills = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
-                                            queue=self.waiting)
+                                            queue=self.waiting,
+                                            check_ws=True)
         
                 prefills_returning = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
-                                            queue=self.returning)
+                                            queue=self.returning,
+                                            check_ws=False)
 
             self.ret_queue_turn = 1 - self.ret_queue_turn
         else:
@@ -2289,7 +2303,8 @@ class Scheduler:
             prefills = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
-                                            queue=self.waiting)
+                                            queue=self.waiting,
+                                            check_ws=True)
 
         # join the two outputs 
         prefills.seq_groups.extend(prefills_returning.seq_groups)
@@ -2495,6 +2510,10 @@ class Scheduler:
                 encoder_seq_data = None
                 cross_block_table = None
 
+            # update access time for ws control
+            if self.block_manager.enable_ws_control:
+                self.block_manager.update_ws(seq_group.request_id, now)
+
             for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
                 seq_id = seq.seq_id
                 seq_data[seq_id] = seq.data
@@ -2635,6 +2654,9 @@ class Scheduler:
             if seq.is_finished():
                 logger.info("[elasticswap] freeing seq_id=%d" % seq.seq_id)
                 self.free_seq(seq)
+        
+        if self.block_manager.enable_ws_control:
+            self.block_manager.update_ws(seq_group.request_id, time.time())
 
     def _free_finished_seq_group(self, seq_group: SequenceGroup) -> None:
         if seq_group.is_finished():

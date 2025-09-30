@@ -3,7 +3,7 @@
 from typing import Dict, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Tuple
-
+import heapq
 from vllm.logger import init_logger
 from vllm.core.block.block_table import BlockTable
 from vllm.core.block.cpu_gpu_block_allocator import CpuGpuBlockAllocator
@@ -17,7 +17,8 @@ from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.sequence import Sequence, SequenceGroup, SequenceStatus
 from vllm.utils import Device, cdiv, chunk_list
 from vllm.core.evictor import SwapStrategy
-from vllm.config import SwapBudgetType
+from vllm.config import SwapBudgetType, WsControlPolicy
+import time
 
 logger = init_logger(__name__)
 
@@ -42,6 +43,14 @@ class AllocationContextManager:
     def __exit__(self, exc_type, exc_value, exc_traceback):
         if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
             self.block_allocator.allocation_ctx.unset_context()
+
+class WsMetaData:
+    def __init__(self, num_blocks: int, 
+                    last_accessed: float, 
+                    kv_reuse_expected_time_s: float = None):
+        self.num_blocks = num_blocks
+        self.last_accessed = last_accessed
+        self.kv_reuse_expected_time_s = kv_reuse_expected_time_s
 
 class SelfAttnBlockSpaceManager(BlockSpaceManager):
     """BlockSpaceManager which manages the allocation of KV cache.
@@ -98,6 +107,10 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         swap_budget_frac: float = 0.5,
         pinned_memory_frac: float = 0.25,
         enable_cache_heirarchy: bool = True,
+        enable_ws_control: bool = False,
+        ws_control_policy: WsControlPolicy = WsControlPolicy.WS_DEADLINE,
+        ws_control_deadline: float = 1.0,
+        ws_size_fraction: float = 1.1,
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
@@ -136,6 +149,17 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             enable_cache_heirarchy=enable_cache_heirarchy,
         )
 
+        self.enable_ws_control = enable_ws_control
+        self.ws_control_policy = ws_control_policy
+        self.ws_control_deadline = ws_control_deadline
+        self.ws_size_fraction = ws_size_fraction
+        self.ws_size_threshold = int(self.num_total_gpu_blocks * ws_size_fraction)
+        self.ws_cleanup_threshold = 50
+        self.kv_reuse_hard_limit = 1000.0 # seconds
+
+        self.ws_table = {} # mapping from agent_id to num blocks for the request and last accessed or HINT timestamp
+        self.ws_priority_queue = [] # priority queue for ws control
+
         self.block_tables: Dict[SeqId, BlockTable] = {}
         self.cross_block_tables: Dict[EncoderSeqId, BlockTable] = {}
 
@@ -143,6 +167,98 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             self.block_allocator, self.block_size, self.enable_caching)
         self._last_access_blocks_tracker = LastAccessBlocksTracker(
             self.block_allocator)
+
+
+    def add_request_to_ws(self, request_id: str, num_blocks: int, last_accessed: float, kv_reuse_expected_duration_s: float = None):
+        self.ws_table[request_id] = WsMetaData(num_blocks, last_accessed, kv_reuse_expected_duration_s)
+
+        if self.ws_control_policy == WsControlPolicy.WS_DEADLINE:
+            heapq.heappush(self.ws_priority_queue, (last_accessed, request_id))
+        elif self.ws_control_policy == WsControlPolicy.WS_HINT:
+            kv_reuse_expected_time = last_accessed + kv_reuse_expected_duration_s
+            heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, last_accessed, request_id))
+        else:
+            raise ValueError("invalid ws control policy type %s" % self.ws_control_policy)
+        
+        self.cleanup_ws_pq_if_necessary()
+    
+    def evict_ws(self, num_blocks_target: int):
+        num_blocks_evicted = 0
+        while num_blocks_evicted < num_blocks_target:
+            if self.ws_priority_queue:
+
+                if self.ws_control_policy == WsControlPolicy.WS_DEADLINE:
+                    last_accessed, request_id = heapq.heappop(self.ws_priority_queue)
+                    if last_accessed == self.ws_table[request_id].last_accessed:
+                        if last_accessed < time.time() - self.ws_control_deadline:
+                            self.ws_table.pop(request_id)
+                            num_blocks_evicted += self.ws_table[request_id].num_blocks
+                        else:
+                            heapq.heappush(self.ws_priority_queue, (last_accessed, request_id))
+                            break
+
+                elif self.ws_control_policy == WsControlPolicy.WS_HINT:
+                    kv_reuse_expected_time, last_accessed, request_id = heapq.heappop(self.ws_priority_queue)
+                    
+                    if last_accessed == self.ws_table[request_id].last_accessed:
+                        if kv_reuse_expected_time + self.ws_control_deadline < time.time() \
+                        or self.ws_table[request_id].kv_reuse_expected_duration_s > self.kv_reuse_hard_limit:
+                            self.ws_table.pop(request_id)
+                            num_blocks_evicted += self.ws_table[request_id].num_blocks
+                        else:
+                            heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, last_accessed, request_id))
+                            break
+                else:
+                    raise ValueError("invalid ws control policy type %s" % self.ws_control_policy)
+            else:
+                break
+        return num_blocks_evicted
+
+    def cleanup_ws_pq_if_necessary(self):
+        if len(self.ws_priority_queue) > self.ws_cleanup_threshold * len(self.ws_table):
+            self.cleanup_ws_pq()
+
+    def cleanup_ws_pq(self):
+        # reconstruct the ws_priority_queue
+        self.ws_priority_queue = []
+        for request_id, ws_meta_data in self.ws_table.items():
+            if self.ws_control_policy == WsControlPolicy.WS_DEADLINE:
+                heapq.heappush(self.ws_priority_queue, (ws_meta_data.last_accessed, request_id))
+            elif self.ws_control_policy == WsControlPolicy.WS_HINT:
+                kv_reuse_expected_time = ws_meta_data.last_accessed + ws_meta_data.kv_reuse_expected_duration_s
+                heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, ws_meta_data.last_accessed, request_id))
+
+    def update_ws(self, request_id: str, last_accessed: float):
+        self.ws_table[request_id].last_accessed = last_accessed
+        if self.ws_control_policy == WsControlPolicy.WS_DEADLINE:
+            heapq.heappush(self.ws_priority_queue, (last_accessed, request_id))
+        elif self.ws_control_policy == WsControlPolicy.WS_HINT:
+            kv_reuse_expected_time = last_accessed + self.ws_table[request_id].kv_reuse_expected_duration_s
+            heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, last_accessed, request_id))
+    
+    def remove_ws(self, request_id: str):
+        if request_id not in self.ws_table:
+            raise ValueError("request_id %s not in ws_table" % request_id)
+        self.ws_table.pop(request_id)
+    
+
+    def get_num_blocks_in_ws(self):
+        return sum(ws_meta_data.num_blocks for ws_meta_data in self.ws_table.values())
+    
+    def can_allocate_ws(self, num_blocks_required: int):
+        if not self.enable_ws_control:
+            return True
+        num_blocks_in_ws = self.get_num_blocks_in_ws()
+        # evict from ws if necessary
+        if num_blocks_in_ws > self.ws_size_threshold:
+            self.evict_ws(num_blocks_target=num_blocks_required)
+            num_blocks_in_ws = self.get_num_blocks_in_ws()
+        
+        if self.ws_size_threshold - num_blocks_in_ws >= num_blocks_required:
+            return True
+        else:
+            return False
+        
 
     def get_num_cached_blocks(self, seq_group: SequenceGroup):
         
@@ -187,7 +303,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
     def can_allocate(self,
                      seq_group: SequenceGroup,
-                     num_lookahead_slots: int = 0) -> AllocStatus:
+                     num_lookahead_slots: int = 0,
+                     check_ws: bool = False) -> AllocStatus:
         # FIXME(woosuk): Here we assume that all sequences in the group share
         # the same prompt. This may not be true for preempted sequences.
 
@@ -248,6 +365,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             return AllocStatus.NEVER
         if num_free_gpu_blocks - num_required_blocks >= self.watermark_blocks:
             # logger.info("[DEBUG] can_allocate: returning OK (sufficient free blocks)")
+            if check_ws and not self.can_allocate_ws(num_required_blocks):
+                return AllocStatus.LATER
             return AllocStatus.OK
         else:
             # logger.info("[DEBUG] can_allocate: returning LATER (insufficient free blocks)")
@@ -314,6 +433,13 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             seq = waiting_seqs[0]
             block_table: BlockTable = self._allocate_sequence(seq)
             self.block_tables[seq.seq_id] = block_table
+
+            if self.enable_ws_control:
+                kv_reuse_expected_duration_s = seq_group.hints.kv_reuse_expected_duration_s
+                self.add_request_to_ws(seq_group.request_id, 
+                    len(block_table.blocks), 
+                    time.time(), 
+                    kv_reuse_expected_duration_s=kv_reuse_expected_duration_s)
 
             # Track seq
             self._last_access_blocks_tracker.add_seq(seq.seq_id)

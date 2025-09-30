@@ -152,6 +152,7 @@ def run_experiment(
     pinned_memory_frac = 0.25,
     enable_cache_heirarchy = True,
     max_num_seqs = 100,
+    max_num_batched_tokens = 2048,
     debug = False,
 ):
     retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
@@ -194,6 +195,7 @@ def run_experiment(
             '--enforce-eager',
             '--enable-cache-heirarchy', str(enable_cache_heirarchy),
             "--port", str(port),
+            "--max-num-batched-tokens", str(max_num_batched_tokens),
         ],
         output_filename=output_log_file,
         block_until_output="Uvicorn running",

@@ -17,6 +17,22 @@ random.seed(42)
 np.random.seed(42)
 
 
+# def sample_toolcall_duration_fixed(
+#     rng=None,
+#     p_long=0.15,
+#     interrupt_length=None
+# ):
+#     rng = np.random.default_rng() if rng is None else rng
+#     is_long = rng.random() < p_long
+
+#     if not is_long:
+#         num = rng.integers(1, 100)
+#         num = num / 100.0
+#     else:
+#         num = rng.integers(1, 5)
+    
+#     return float(num), is_long
+
 def sample_toolcall_duration_fixed(
     rng=None,
     p_long=0.15,
@@ -133,7 +149,7 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
     
     workloads = []
 
-    num_interrupts_list = rng.integers(1, 51, size=num_requests)
+    num_interrupts_list = rng.integers(1, 10, size=num_requests)
     
     for i in range(num_requests):
         # 1. Request size: log-normal distribution, capped at 30k
@@ -483,13 +499,17 @@ def main():
     # choose everything in variable fashion
     rng = np.random.default_rng(seed=42)
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
-    # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 
-    #         0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 
-    #         0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    rates = [0.01, 0.02, 0.03, 0.04, 0.05, 
+            0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 
+            0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
+    # rates = [2.0, 3.0, 4.0, 5.0]
     # rates = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
-    rates = [0.1]
+    # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.06, 0.07, 0.08, 0.09]
+
 
     # rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0, 3.0, 4.0, 5.0]
 
@@ -518,10 +538,11 @@ def main():
     swap_budget_frac = 1
     enable_cache_heirarchy = False
     multi_tenant = False
-    port = 8005
+    port = 8002
     max_num_seqs = 200
-    cuda_device = 4
+    cuda_device = 7
     wait_for_all_done = False
+    max_num_batched_tokens = 2048
 
     for rate in rates:
         num_events = int(rate * t)
@@ -563,7 +584,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-142-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-146-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -627,9 +648,9 @@ def main():
                         'swap_strategy': "swap-hints",
                         'block_allocator': "CpuOffloadingBlockAllocator",
                         'port': port,
-                        'enable_returning_queue': False, 
+                        'enable_returning_queue': True, 
                         'returning_queue_sched_policy': "prio",
-                        'returning_queue_sort_freq': 99999999999,
+                        'returning_queue_sort_freq': 1.0,
                         'enable_swap_budget': False,
                         'swap_budget_type': "fixed",
                         'swap_budget_frac': 0.0,
@@ -638,6 +659,7 @@ def main():
                         'pinned_memory_frac': pinned_memory_frac,
                         'enable_cache_heirarchy': enable_cache_heirarchy,
                         'max_num_seqs': max_num_seqs,
+                        'max_num_batched_tokens': max_num_batched_tokens,
                         'debug': DEBUG,
                     }
                 )
@@ -659,9 +681,9 @@ def main():
                         'swap_strategy': "swap-lru",
                         'block_allocator': "CpuGpuBlockAllocator",
                         'port': port,
-                        'enable_returning_queue': False,
+                        'enable_returning_queue': True,
                         'returning_queue_sched_policy': "prio",
-                        'returning_queue_sort_freq': 99999999999,
+                        'returning_queue_sort_freq': 1.0,
                         'enable_swap_budget': False,
                         'swap_budget_type': "fixed",
                         'swap_budget_frac': 0.0,
@@ -670,6 +692,7 @@ def main():
                         'pinned_memory_frac': 0.0,
                         'enable_cache_heirarchy': enable_cache_heirarchy,
                         'max_num_seqs': max_num_seqs,
+                        'max_num_batched_tokens': max_num_batched_tokens,
                         'debug': DEBUG,
                     }
                 )

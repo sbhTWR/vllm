@@ -232,6 +232,12 @@ class EngineArgs:
 
     # enable cache hierarchy
     enable_cache_heirarchy: bool = True
+
+    # define working set 
+    enable_ws_control: bool = False
+    ws_control_policy: str = "ws-deadline"
+    ws_control_deadline: float = 1.0
+    ws_size_fraction: float = 1.1
     
 
     def __post_init__(self):
@@ -1069,6 +1075,32 @@ class EngineArgs:
             help='.')
 
         parser.add_argument(
+            '--enable-ws-control',
+            action=StoreBoolean,
+            default=False,
+            nargs="?",
+            const="True",
+            help='.')
+        
+        parser.add_argument(
+            '--ws-control-policy',
+            choices=["ws-deadline", "ws-hint"],
+            default="ws-deadline",
+            help='.')
+        
+        parser.add_argument(
+            '--ws-control-deadline',
+            type=float,
+            default=1.0,
+            help='.')
+
+        parser.add_argument(
+            '--ws-size-fraction',
+            type=float,
+            default=1.1,
+            help='.')
+
+        parser.add_argument(
             '--retrify-log-file',
             dest="retrify_log_file",
             type=str,
@@ -1425,6 +1457,10 @@ class EngineArgs:
             enable_swap_budget=self.enable_swap_budget,
             swap_budget_type=self.swap_budget_type,
             swap_budget_frac=self.swap_budget_frac,
+            enable_ws_control=self.enable_ws_control,
+            ws_control_policy=self.ws_control_policy,
+            ws_control_deadline=self.ws_control_deadline,
+            ws_size_fraction=self.ws_size_fraction,
             )
         lora_config = LoRAConfig(
             bias_enabled=self.enable_lora_bias,
