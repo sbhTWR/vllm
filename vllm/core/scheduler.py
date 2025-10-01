@@ -928,6 +928,10 @@ class Scheduler:
             swap_budget_frac=self.scheduler_config.swap_budget_frac,
             pinned_memory_frac=self.cache_config.pinned_memory_frac,
             enable_cache_heirarchy=self.cache_config.enable_cache_heirarchy,
+            enable_ws_control=self.scheduler_config.enable_ws_control,
+            ws_control_policy=self.scheduler_config.ws_control_policy,
+            ws_control_deadline=self.scheduler_config.ws_control_deadline,
+            ws_size_fraction=self.scheduler_config.ws_size_fraction,
             )
 
         # Sequence groups in the WAITING state.
@@ -1771,7 +1775,10 @@ class Scheduler:
 
             # If the sequence group cannot be allocated, stop.
             can_allocate = self.block_manager.can_allocate(
-                seq_group, num_lookahead_slots=num_lookahead_slots, check_ws=check_ws)
+                            seq_group, 
+                            num_lookahead_slots=num_lookahead_slots, 
+                            check_ws=check_ws
+            )
 
             # logger.info("[DEBUG] _schedule_prefills: can_allocate=%s for seq_group=%s", 
             #            can_allocate.name, seq_group.request_id)
@@ -2512,7 +2519,14 @@ class Scheduler:
 
             # update access time for ws control
             if self.block_manager.enable_ws_control:
-                self.block_manager.update_ws(seq_group.request_id, now)
+                is_finished = seq_group.is_finished()
+                logger.info("[elasticswap] [ws_control] updating ws for seq_group.user_id=%s is_finished=%s now=%f seq_id=%s"\
+                                        % (seq_group.user_id,
+                                            is_finished,
+                                            now,
+                                            seq_group.request_id))
+                if not is_finished:
+                    self.block_manager.update_ws(seq_group.user_id, now)
 
             for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
                 seq_id = seq.seq_id
@@ -2652,11 +2666,12 @@ class Scheduler:
         """Free finished seqs in a sequence group."""
         for seq in seq_group.get_seqs():
             if seq.is_finished():
-                logger.info("[elasticswap] freeing seq_id=%d" % seq.seq_id)
+                logger.info("[elasticswap] freeing agent_id=%s seq_id=%d" % (seq_group.user_id, seq.seq_id))
                 self.free_seq(seq)
         
-        if self.block_manager.enable_ws_control:
-            self.block_manager.update_ws(seq_group.request_id, time.time())
+                if self.block_manager.enable_ws_control:
+                    logger.info("[elasticswap] [ws_control] [free] updating ws for seq_group.user_id=%s now=%f seq_id=%s" % (seq_group.user_id, time.time(), seq_group.request_id))
+                    self.block_manager.update_ws(seq_group.user_id, time.time(), inactive=True)
 
     def _free_finished_seq_group(self, seq_group: SequenceGroup) -> None:
         if seq_group.is_finished():
@@ -2669,8 +2684,8 @@ class Scheduler:
             self._finished_requests_ids.append(seq_group.request_id)
 
         fr_policy = self.scheduler_config.finished_requests_policy
-        logger.info("finishing request=%s user_id=%s with fr_policy=%s" 
-                        % (seq_group.request_id, seq_group.user_id, fr_policy))
+        # logger.info("finishing request=%s user_id=%s with fr_policy=%s" 
+                        # % (seq_group.request_id, seq_group.user_id, fr_policy))
         
         if fr_policy == "default":
             # the default policy is to free and "forget" the request

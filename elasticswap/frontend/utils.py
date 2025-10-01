@@ -153,6 +153,10 @@ def run_experiment(
     enable_cache_heirarchy = True,
     max_num_seqs = 100,
     max_num_batched_tokens = 2048,
+    enable_ws_control = False,
+    ws_control_policy = "ws-deadline",
+    ws_control_deadline = 1.0,
+    ws_size_fraction = 1.1,
     debug = False,
 ):
     retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
@@ -196,6 +200,10 @@ def run_experiment(
             '--enable-cache-heirarchy', str(enable_cache_heirarchy),
             "--port", str(port),
             "--max-num-batched-tokens", str(max_num_batched_tokens),
+            "--enable-ws-control", str(enable_ws_control),
+            "--ws-control-policy", str(ws_control_policy),
+            "--ws-control-deadline", str(ws_control_deadline),
+            "--ws-size-fraction", str(ws_size_fraction),
         ],
         output_filename=output_log_file,
         block_until_output="Uvicorn running",

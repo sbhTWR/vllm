@@ -47,10 +47,11 @@ class AllocationContextManager:
 class WsMetaData:
     def __init__(self, num_blocks: int, 
                     last_accessed: float, 
-                    kv_reuse_expected_time_s: float = None):
+                    kv_reuse_expected_duration_s: float = None):
         self.num_blocks = num_blocks
         self.last_accessed = last_accessed
-        self.kv_reuse_expected_time_s = kv_reuse_expected_time_s
+        self.kv_reuse_expected_duration_s = kv_reuse_expected_duration_s
+        self.active = True
 
 class SelfAttnBlockSpaceManager(BlockSpaceManager):
     """BlockSpaceManager which manages the allocation of KV cache.
@@ -170,13 +171,20 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
 
     def add_request_to_ws(self, request_id: str, num_blocks: int, last_accessed: float, kv_reuse_expected_duration_s: float = None):
+        
+        logger.info("[elasticswap] [ws_control] adding request_id=%s num_blocks=%d last_accessed=%f kv_reuse_expected_duration_s=%f to ws_table" 
+                    % (request_id, 
+                        num_blocks, 
+                        last_accessed, 
+                        kv_reuse_expected_duration_s)
+        )
         self.ws_table[request_id] = WsMetaData(num_blocks, last_accessed, kv_reuse_expected_duration_s)
 
         if self.ws_control_policy == WsControlPolicy.WS_DEADLINE:
             heapq.heappush(self.ws_priority_queue, (last_accessed, request_id))
         elif self.ws_control_policy == WsControlPolicy.WS_HINT:
             kv_reuse_expected_time = last_accessed + kv_reuse_expected_duration_s
-            heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, last_accessed, request_id))
+            heapq.heappush(self.ws_priority_queue, (-kv_reuse_expected_time, last_accessed, request_id))
         else:
             raise ValueError("invalid ws control policy type %s" % self.ws_control_policy)
         
@@ -186,25 +194,38 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         num_blocks_evicted = 0
         while num_blocks_evicted < num_blocks_target:
             if self.ws_priority_queue:
-
                 if self.ws_control_policy == WsControlPolicy.WS_DEADLINE:
                     last_accessed, request_id = heapq.heappop(self.ws_priority_queue)
+                    if not request_id in self.ws_table:
+                        continue
                     if last_accessed == self.ws_table[request_id].last_accessed:
+                        if self.ws_table[request_id].active:
+                            break
                         if last_accessed < time.time() - self.ws_control_deadline:
+                            num_blocks = self.ws_table[request_id].num_blocks
+                            num_blocks_evicted += num_blocks
                             self.ws_table.pop(request_id)
-                            num_blocks_evicted += self.ws_table[request_id].num_blocks
+                            logger.info("[elasticswap] [ws_control] evicting request_id=%s num_blocks=%d time_now=%f last_accessed=%f deadline (lru)=%f" 
+                                        % (request_id, num_blocks, time.time(), last_accessed, last_accessed + self.ws_control_deadline))
                         else:
                             heapq.heappush(self.ws_priority_queue, (last_accessed, request_id))
                             break
 
                 elif self.ws_control_policy == WsControlPolicy.WS_HINT:
                     kv_reuse_expected_time, last_accessed, request_id = heapq.heappop(self.ws_priority_queue)
-                    
+                    if not request_id in self.ws_table:
+                        continue
                     if last_accessed == self.ws_table[request_id].last_accessed:
-                        if kv_reuse_expected_time + self.ws_control_deadline < time.time() \
+                        if self.ws_table[request_id].active:
+                            break
+                        if -kv_reuse_expected_time + self.ws_control_deadline < time.time() \
                         or self.ws_table[request_id].kv_reuse_expected_duration_s > self.kv_reuse_hard_limit:
+                            num_blocks = self.ws_table[request_id].num_blocks
+                            num_blocks_evicted += num_blocks
+                            kv_reuse_expected_duration_s = self.ws_table[request_id].kv_reuse_expected_duration_s
                             self.ws_table.pop(request_id)
-                            num_blocks_evicted += self.ws_table[request_id].num_blocks
+                            logger.info("[elasticswap] [ws_control] evicting request_id=%s num_blocks=%d kv_reuse_expected_duration_s=%f time_now=%f kv_reuse_expected_time=%f deadline (hint)=%f" 
+                                        % (request_id, num_blocks, kv_reuse_expected_duration_s, time.time(), kv_reuse_expected_time, -kv_reuse_expected_time + self.ws_control_deadline))
                         else:
                             heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, last_accessed, request_id))
                             break
@@ -212,6 +233,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                     raise ValueError("invalid ws control policy type %s" % self.ws_control_policy)
             else:
                 break
+
+        logger.info("[elasticswap] [ws_control] evicted %d blocks" % num_blocks_evicted)
         return num_blocks_evicted
 
     def cleanup_ws_pq_if_necessary(self):
@@ -226,21 +249,31 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                 heapq.heappush(self.ws_priority_queue, (ws_meta_data.last_accessed, request_id))
             elif self.ws_control_policy == WsControlPolicy.WS_HINT:
                 kv_reuse_expected_time = ws_meta_data.last_accessed + ws_meta_data.kv_reuse_expected_duration_s
-                heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, ws_meta_data.last_accessed, request_id))
+                heapq.heappush(self.ws_priority_queue, (-kv_reuse_expected_time, ws_meta_data.last_accessed, request_id))
 
-    def update_ws(self, request_id: str, last_accessed: float):
+    def update_ws(self, request_id: str, last_accessed: float, inactive: bool = False):
         self.ws_table[request_id].last_accessed = last_accessed
+
+        if inactive:
+            self.ws_table[request_id].active = False
+
         if self.ws_control_policy == WsControlPolicy.WS_DEADLINE:
             heapq.heappush(self.ws_priority_queue, (last_accessed, request_id))
         elif self.ws_control_policy == WsControlPolicy.WS_HINT:
             kv_reuse_expected_time = last_accessed + self.ws_table[request_id].kv_reuse_expected_duration_s
-            heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, last_accessed, request_id))
+            heapq.heappush(self.ws_priority_queue, (-kv_reuse_expected_time, last_accessed, request_id))
     
     def remove_ws(self, request_id: str):
         if request_id not in self.ws_table:
             raise ValueError("request_id %s not in ws_table" % request_id)
         self.ws_table.pop(request_id)
     
+    def print_ws_table(self):
+        logger.info("[elasticswap] [ws_control] =========ws_table=========")
+        for request_id, ws_meta_data in self.ws_table.items():
+            logger.info("[elasticswap] [ws_control] request_id=%s num_blocks=%d last_accessed=%f kv_reuse_expected_duration_s=%f active=%s" 
+                        % (request_id, ws_meta_data.num_blocks, ws_meta_data.last_accessed, ws_meta_data.kv_reuse_expected_duration_s, ws_meta_data.active))
+        logger.info("[elasticswap] [ws_control] =========end: ws_table=========")
 
     def get_num_blocks_in_ws(self):
         return sum(ws_meta_data.num_blocks for ws_meta_data in self.ws_table.values())
@@ -254,9 +287,15 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             self.evict_ws(num_blocks_target=num_blocks_required)
             num_blocks_in_ws = self.get_num_blocks_in_ws()
         
+        self.print_ws_table()
+
         if self.ws_size_threshold - num_blocks_in_ws >= num_blocks_required:
+            logger.info("[elasticswap] [ws_control] can_allocate_ws: True num_blocks_in_ws=%d num_blocks_required=%d" 
+                        % (num_blocks_in_ws, num_blocks_required))
             return True
         else:
+            logger.info("[elasticswap] [ws_control] can_allocate_ws: False num_blocks_in_ws=%d num_blocks_required=%d" 
+                        % (num_blocks_in_ws, num_blocks_required))
             return False
         
 
@@ -309,8 +348,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         # the same prompt. This may not be true for preempted sequences.
 
         # FIXME(shubham): Temporary fix for persist / swap
-        if seq_group.first_seq.seq_id in self.block_tables:
-            return AllocStatus.OK
+        # if seq_group.first_seq.seq_id in self.block_tables:
+        #     return AllocStatus.OK
 
         check_no_caching_or_swa_for_blockmgr_encdec(self, seq_group)
 
@@ -355,8 +394,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                             device=Device.GPU)
            
 
-        logger.info("[elasticswap] can_allocate: num_required_blocks=%d num_free_gpu_blocks=%d" 
-                                % (num_required_blocks, num_free_gpu_blocks))
+        logger.info("[elasticswap] can_allocate: num_required_blocks=%d num_free_gpu_blocks=%d check_ws=%s" 
+                                % (num_required_blocks, num_free_gpu_blocks, check_ws))
 
         # Use watermark to avoid frequent cache eviction.
         if (self.num_total_gpu_blocks - num_required_blocks
@@ -434,9 +473,10 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             block_table: BlockTable = self._allocate_sequence(seq)
             self.block_tables[seq.seq_id] = block_table
 
+            logger.info("[elasticswap] [ws_control] enable_ws_control=%s" % self.enable_ws_control)
             if self.enable_ws_control:
                 kv_reuse_expected_duration_s = seq_group.hints.kv_reuse_expected_duration_s
-                self.add_request_to_ws(seq_group.request_id, 
+                self.add_request_to_ws(seq_group.user_id, 
                     len(block_table.blocks), 
                     time.time(), 
                     kv_reuse_expected_duration_s=kv_reuse_expected_duration_s)
