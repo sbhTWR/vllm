@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Tuple
 import heapq
+import sys
 from vllm.logger import init_logger
 from vllm.core.block.block_table import BlockTable
 from vllm.core.block.cpu_gpu_block_allocator import CpuGpuBlockAllocator
@@ -287,15 +288,15 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             self.evict_ws(num_blocks_target=num_blocks_required)
             num_blocks_in_ws = self.get_num_blocks_in_ws()
         
-        self.print_ws_table()
+        # self.print_ws_table()
 
         if self.ws_size_threshold - num_blocks_in_ws >= num_blocks_required:
-            logger.info("[elasticswap] [ws_control] can_allocate_ws: True num_blocks_in_ws=%d num_blocks_required=%d" 
-                        % (num_blocks_in_ws, num_blocks_required))
+            # logger.info("[elasticswap] [ws_control] can_allocate_ws: True num_blocks_in_ws=%d num_blocks_required=%d" 
+            #             % (num_blocks_in_ws, num_blocks_required))
             return True
         else:
-            logger.info("[elasticswap] [ws_control] can_allocate_ws: False num_blocks_in_ws=%d num_blocks_required=%d" 
-                        % (num_blocks_in_ws, num_blocks_required))
+            # logger.info("[elasticswap] [ws_control] can_allocate_ws: False num_blocks_in_ws=%d num_blocks_required=%d" 
+            #             % (num_blocks_in_ws, num_blocks_required))
             return False
         
 
@@ -336,20 +337,27 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                                             )
 
         assert total_uncached_blocks_required >= num_cached_blocks
-        logger.info("[elasticswap] total=%d cached=%d" 
-                    % (total_uncached_blocks_required, num_cached_blocks))
+        # logger.info("[elasticswap] total=%d cached=%d" 
+                    # % (total_uncached_blocks_required, num_cached_blocks))
         return total_uncached_blocks_required - num_cached_blocks, num_cached_blocks
 
     def can_allocate(self,
                      seq_group: SequenceGroup,
                      num_lookahead_slots: int = 0,
                      check_ws: bool = False) -> AllocStatus:
+        
+
+        caller = sys._getframe().f_back.f_code.co_name
+        # logger.info("[elasticswap] can_allocate called for request_id=%s check_ws=%s caller=%s" 
+        #                             % (seq_group.user_id, check_ws, caller))
+        
         # FIXME(woosuk): Here we assume that all sequences in the group share
         # the same prompt. This may not be true for preempted sequences.
 
         # FIXME(shubham): Temporary fix for persist / swap
-        # if seq_group.first_seq.seq_id in self.block_tables:
-        #     return AllocStatus.OK
+        if seq_group.first_seq.seq_id in self.block_tables:
+            logger.info("[elasticswap] block table already exists for request_id=%s so returning OK" % seq_group.user_id)
+            return AllocStatus.OK
 
         check_no_caching_or_swa_for_blockmgr_encdec(self, seq_group)
 
@@ -394,8 +402,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                             device=Device.GPU)
            
 
-        logger.info("[elasticswap] can_allocate: num_required_blocks=%d num_free_gpu_blocks=%d check_ws=%s" 
-                                % (num_required_blocks, num_free_gpu_blocks, check_ws))
+        # logger.info("[elasticswap] can_allocate: num_required_blocks=%d num_free_gpu_blocks=%d check_ws=%s" 
+                                # % (num_required_blocks, num_free_gpu_blocks, check_ws))
 
         # Use watermark to avoid frequent cache eviction.
         if (self.num_total_gpu_blocks - num_required_blocks

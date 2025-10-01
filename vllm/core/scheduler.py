@@ -1712,7 +1712,9 @@ class Scheduler:
         ignored_seq_groups: List[SequenceGroup] = []
         seq_groups: List[ScheduledSequenceGroup] = []
 
-        if queue:
+        # we have to be sure of differentiating between None and an empty queue 
+        
+        if queue is not None:
             waiting_queue = queue
         else:
             waiting_queue = self.waiting
@@ -1838,16 +1840,18 @@ class Scheduler:
                 curr_loras.add(lora_int_id)
             waiting_queue.popleft()
             
-            logger.info("[DEBUG] _schedule_prefills: ABOUT TO ALLOCATE seq_group=%s, can_allocate=%s", 
-                       seq_group.request_id, can_allocate.name)
+            # logger.info("[DEBUG] _schedule_prefills: ABOUT TO ALLOCATE seq_group=%s, can_allocate=%s", 
+                    #    seq_group.request_id, can_allocate.name)
             
             # Check swap_scheduler state right before allocation
             if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
                 gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
                 if hasattr(gpu_allocator, 'swap_scheduler'):
-                    logger.info("[DEBUG] _schedule_prefills: BEFORE ALLOCATION - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
-                               gpu_allocator.swap_scheduler.num_blocks, 
-                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+                    # logger.info("[DEBUG] _schedule_prefills: BEFORE ALLOCATION - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                    #            gpu_allocator.swap_scheduler.num_blocks, 
+                    #            getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+                    
+                    pass
             
             self._allocate_and_set_running(seq_group)
 
@@ -1972,12 +1976,18 @@ class Scheduler:
 
                 # logger.info("[elasticswap] scheduling prio --> returning; waiting")
 
+                logger.info("[elasticswap] calling schedule_prefills for returning queue with check_ws=False")
+                # print returning queue 
+                logger.info("[elasticswap] returning queue=%s" % [group.user_id for group in self.returning])
                 prefills_returning = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
                                                 queue=self.returning,
                                                 check_ws=False)
 
+                logger.info("[elasticswap] calling schedule_prefills for waiting queue with check_ws=True")
+                # print waiting queue 
+                logger.info("[elasticswap] waiting queue=%s" % [group.user_id for group in self.waiting])
                 prefills = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
@@ -2202,8 +2212,8 @@ class Scheduler:
                 free_blocks = gpu_allocator._hashless_allocator.get_num_free_blocks()
                 evictable_blocks = gpu_allocator.swap_scheduler.num_blocks
                 used_blocks = total_blocks - free_blocks - evictable_blocks
-                logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
-                           total_blocks, free_blocks, evictable_blocks, used_blocks)
+                # logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
+                #            total_blocks, free_blocks, evictable_blocks, used_blocks)
         else:
             # we just want to print everything here to know the state of the cache
             if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
@@ -2212,8 +2222,8 @@ class Scheduler:
                 free_blocks = gpu_allocator._hashless_allocator.get_num_free_blocks()
                 evictable_blocks = gpu_allocator.evictor.num_blocks
                 used_blocks = total_blocks - free_blocks - evictable_blocks
-                logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
-                           total_blocks, free_blocks, evictable_blocks, used_blocks)
+                # logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
+                #            total_blocks, free_blocks, evictable_blocks, used_blocks)
 
         # Decoding should be always scheduled first by fcfs.
         running_scheduled = self._schedule_running(budget,
@@ -2260,13 +2270,16 @@ class Scheduler:
         if self.ret_queue_sched_policy == ReturningQueueSchedPolicy.PRIO:
 
             # logger.info("[elasticswap] scheduling prio --> returning; waiting")
-
+            # logger.info("[elasticswap] calling schedule_prefills for returning queue with check_ws=False")
+            # logger.info("[elasticswap] returning queue=%s" % [group.user_id for group in self.returning])
             prefills_returning = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
                                             queue=self.returning,
                                             check_ws=False)
 
+            # logger.info("[elasticswap] calling schedule_prefills for waiting queue with check_ws=True")
+            # logger.info("[elasticswap] waiting queue=%s" % [group.user_id for group in self.waiting])
             prefills = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
@@ -2388,23 +2401,25 @@ class Scheduler:
             if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
                 gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
                 if hasattr(gpu_allocator, 'swap_scheduler'):
-                    logger.info("[DEBUG] _schedule_default: BEFORE get_and_reset_swaps - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
-                               gpu_allocator.swap_scheduler.num_blocks, 
-                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+                    # logger.info("[DEBUG] _schedule_default: BEFORE get_and_reset_swaps - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                    #            gpu_allocator.swap_scheduler.num_blocks, 
+                    #            getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+                    pass
 
             new_swap_out, new_swap_in = \
                     self.block_manager.get_and_reset_swaps(time.time())
             
-            logger.info("[DEBUG] _schedule_default: AFTER get_and_reset_swaps - new_swap_out=%d, new_swap_in=%d", 
-                       len(new_swap_out), len(new_swap_in))
+            # logger.info("[DEBUG] _schedule_default: AFTER get_and_reset_swaps - new_swap_out=%d, new_swap_in=%d", 
+            #            len(new_swap_out), len(new_swap_in))
             
             # Check swap_scheduler state after get_and_reset_swaps
             if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
                 gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
                 if hasattr(gpu_allocator, 'swap_scheduler'):
-                    logger.info("[DEBUG] _schedule_default: AFTER get_and_reset_swaps - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
-                               gpu_allocator.swap_scheduler.num_blocks, 
-                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+                    # logger.info("[DEBUG] _schedule_default: AFTER get_and_reset_swaps - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                    #            gpu_allocator.swap_scheduler.num_blocks, 
+                    #            getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+                    pass
             
             for src, dst in new_swap_out:
                 elastic_swap_blocks_to_swap_out.extend((src, dst))
@@ -2520,11 +2535,11 @@ class Scheduler:
             # update access time for ws control
             if self.block_manager.enable_ws_control:
                 is_finished = seq_group.is_finished()
-                logger.info("[elasticswap] [ws_control] updating ws for seq_group.user_id=%s is_finished=%s now=%f seq_id=%s"\
-                                        % (seq_group.user_id,
-                                            is_finished,
-                                            now,
-                                            seq_group.request_id))
+                # logger.info("[elasticswap] [ws_control] updating ws for seq_group.user_id=%s is_finished=%s now=%f seq_id=%s"\
+                #                         % (seq_group.user_id,
+                #                             is_finished,
+                #                             now,
+                #                             seq_group.request_id))
                 if not is_finished:
                     self.block_manager.update_ws(seq_group.user_id, now)
 
@@ -2666,11 +2681,11 @@ class Scheduler:
         """Free finished seqs in a sequence group."""
         for seq in seq_group.get_seqs():
             if seq.is_finished():
-                logger.info("[elasticswap] freeing agent_id=%s seq_id=%d" % (seq_group.user_id, seq.seq_id))
+                # logger.info("[elasticswap] freeing agent_id=%s seq_id=%d" % (seq_group.user_id, seq.seq_id))
                 self.free_seq(seq)
         
                 if self.block_manager.enable_ws_control:
-                    logger.info("[elasticswap] [ws_control] [free] updating ws for seq_group.user_id=%s now=%f seq_id=%s" % (seq_group.user_id, time.time(), seq_group.request_id))
+                    # logger.info("[elasticswap] [ws_control] [free] updating ws for seq_group.user_id=%s now=%f seq_id=%s" % (seq_group.user_id, time.time(), seq_group.request_id))
                     self.block_manager.update_ws(seq_group.user_id, time.time(), inactive=True)
 
     def _free_finished_seq_group(self, seq_group: SequenceGroup) -> None:

@@ -370,8 +370,9 @@ async def run_dags_with_arrival_times(dags,
     """
     executor = MultiDAGExecutor(port=port)
     # Start background executor loop
-    asyncio.create_task(executor.run_forever())
+    executor_task = asyncio.create_task(executor.run_forever())
 
+    # try:
     agent_id = 0
     for dag, arrival_time in zip(dags, arrival_times):
         print("sleeping for %f seconds" % arrival_time)
@@ -385,7 +386,19 @@ async def run_dags_with_arrival_times(dags,
     # if wait_for_all_done:
     #     await executor.await_all_done()
 
+    await executor_task
     print("All finished DAGs")
+
+    # except asyncio.CancelledError:
+    #     print("Executor timed out!")
+    #     executor.shutdown(drain=False)
+    #     executor_task.cancel()
+    #     try:
+    #         await executor_task
+    #     except asyncio.CancelledError:
+    #         pass 
+    #     raise
+       
 
 async def run_dags_batch(dags):
 
@@ -408,13 +421,21 @@ async def run_dags_batch(dags):
 
     print("All finished DAGs")
 
+async def run_with_timeout(async_func, timeout, **kwargs):
+    try:
+        await asyncio.wait_for(async_func(**kwargs), timeout)
+        print(f"Task completed.")
+    except asyncio.TimeoutError:
+        print("Task timed out using timeout!")
+
 def execute_workload_variable_interrupts(
                                          requests,
                                          arrival_times,
                                          seed=42,
                                          multi_tenant=False,
                                          port=8000, 
-                                         wait_for_all_done=False):
+                                         wait_for_all_done=False,
+                                         timeout=3):
     
     # rng = np.random.default_rng(seed=seed)
     dags = []
@@ -451,11 +472,19 @@ def execute_workload_variable_interrupts(
         return
 
     # asyncio.run(run_dags_batch(dags))
-    asyncio.run(run_dags_with_arrival_times(
-                    dags, 
-                    arrival_times, 
-                    port,
-                    wait_for_all_done=wait_for_all_done))
+    # asyncio.run(run_dags_with_arrival_times(
+    #                 dags, 
+    #                 arrival_times, 
+    #                 port,
+    #                 wait_for_all_done=wait_for_all_done))
+    # also proide args for async_func
+    asyncio.run(run_with_timeout(run_dags_with_arrival_times, 
+                                 timeout=timeout,
+                                 dags=dags,
+                                 arrival_times=arrival_times,
+                                 port=port,
+                                 wait_for_all_done=wait_for_all_done))
+
 
 def main():
 
@@ -541,12 +570,12 @@ def main():
     swap_budget_frac = 1
     enable_cache_heirarchy = False
     multi_tenant = False
-    port = 8002
+    port = 8000
     max_num_seqs = 200
     cuda_device = 7
     wait_for_all_done = False
     max_num_batched_tokens = 2048
-
+    timeout = t + 60
 
     for rate in rates:
         num_events = int(rate * t)
@@ -627,50 +656,51 @@ def main():
                                    seed=42,
                                    multi_tenant=multi_tenant,
                                    port=port,
-                                   wait_for_all_done=wait_for_all_done)
+                                   wait_for_all_done=wait_for_all_done,
+                                   timeout=timeout)
 
         exps = []
         # for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
         for cache_ttl_value in [0]:
             for pinned_memory_frac in [0.0]:
             # for pinned_memory_frac in [0.0]:
-                exps.append(
-                    {
-                        "execute_workload_fn": exec_workload_fn,
-                        'results_path': results_path,
-                        'exp_name': exp_name + '-ttl-%d-pinned-%d' % (cache_ttl_value, int(pinned_memory_frac*100)),
-                        'config_name': "swap-hint",
-                        'env': env,
-                        'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-                        'tp_size': 1, 
-                        'pp_size': 1, 
-                        'swap_space': 1,
-                        'evict_token_thresh': 99999999999,
-                        'evict_token_count': 0,
-                        'enable_chunked_prefill': True,
-                        'fr_policy': "default",
-                        'swap_strategy': "swap-hints",
-                        'block_allocator': "CpuOffloadingBlockAllocator",
-                        'port': port,
-                        'enable_returning_queue': True, 
-                        'returning_queue_sched_policy': "prio",
-                        'returning_queue_sort_freq': 1.0,
-                        'enable_swap_budget': False,
-                        'swap_budget_type': "fixed",
-                        'swap_budget_frac': 0.0,
-                        'enable_eager_evict': False,
-                        'cache_pin_ttl': cache_ttl_value,
-                        'pinned_memory_frac': pinned_memory_frac,
-                        'enable_cache_heirarchy': enable_cache_heirarchy,
-                        'max_num_seqs': max_num_seqs,
-                        'max_num_batched_tokens': max_num_batched_tokens,
-                        'enable_ws_control': True,
-                        'ws_control_policy': "ws-hint",
-                        'ws_control_deadline': 3.0,
-                        'ws_size_fraction': 1.1,
-                        'debug': DEBUG,
-                    }
-                )
+                # exps.append(
+                #     {
+                #         "execute_workload_fn": exec_workload_fn,
+                #         'results_path': results_path,
+                #         'exp_name': exp_name + '-ttl-%d-pinned-%d' % (cache_ttl_value, int(pinned_memory_frac*100)),
+                #         'config_name': "swap-hint",
+                #         'env': env,
+                #         'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+                #         'tp_size': 1, 
+                #         'pp_size': 1, 
+                #         'swap_space': 1,
+                #         'evict_token_thresh': 99999999999,
+                #         'evict_token_count': 0,
+                #         'enable_chunked_prefill': True,
+                #         'fr_policy': "default",
+                #         'swap_strategy': "swap-hints",
+                #         'block_allocator': "CpuOffloadingBlockAllocator",
+                #         'port': port,
+                #         'enable_returning_queue': True, 
+                #         'returning_queue_sched_policy': "prio",
+                #         'returning_queue_sort_freq': 1.0,
+                #         'enable_swap_budget': False,
+                #         'swap_budget_type': "fixed",
+                #         'swap_budget_frac': 0.0,
+                #         'enable_eager_evict': False,
+                #         'cache_pin_ttl': cache_ttl_value,
+                #         'pinned_memory_frac': pinned_memory_frac,
+                #         'enable_cache_heirarchy': enable_cache_heirarchy,
+                #         'max_num_seqs': max_num_seqs,
+                #         'max_num_batched_tokens': max_num_batched_tokens,
+                #         'enable_ws_control': True,
+                #         'ws_control_policy': "ws-hint",
+                #         'ws_control_deadline': 3.0,
+                #         'ws_size_fraction': 1.1,
+                #         'debug': DEBUG,
+                #     }
+                # )
                 exps.append(
                     {
                         "execute_workload_fn": exec_workload_fn,
