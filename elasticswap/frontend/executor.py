@@ -29,9 +29,14 @@ class AsyncDAGExecutor:
         return self.store
 
     async def run_openai_client(self) -> ContextStore:
-        tasks = [asyncio.create_task(node.execute_openai_client(self.store, self.client)) for node in self.nodes]
-        await asyncio.gather(*tasks)
-        return self.store
+        try:
+            tasks = [asyncio.create_task(node.execute_openai_client(self.store, self.client)) for node in self.nodes]
+            await asyncio.gather(*tasks)
+            return self.store
+        finally:
+            # Close the httpx client through the OpenAI client
+            if self.client and hasattr(self.client, '_client') and self.client._client:
+                self.client._client.close()
 
 
 class MultiDAGExecutor:

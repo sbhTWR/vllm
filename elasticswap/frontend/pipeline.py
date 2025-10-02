@@ -427,6 +427,12 @@ async def run_with_timeout(async_func, timeout, **kwargs):
         print(f"Task completed.")
     except asyncio.TimeoutError:
         print("Task timed out using timeout!")
+    
+    finally:
+        print('Shutting down default executor')
+        loop = asyncio.get_running_loop()
+        if hasattr(loop, '_default_executor') and loop._default_executor:
+            loop._default_executor.shutdown(wait=False)
 
 def execute_workload_variable_interrupts(
                                          requests,
@@ -575,7 +581,7 @@ def main():
     cuda_device = 7
     wait_for_all_done = False
     max_num_batched_tokens = 2048
-    timeout = t + 60
+    timeout = t
 
     for rate in rates:
         num_events = int(rate * t)
@@ -736,6 +742,7 @@ def main():
                         'ws_control_deadline': 3.0,
                         'ws_size_fraction': 1.1,
                         'debug': DEBUG,
+                        'timeout': timeout,
                     }
                 )
 

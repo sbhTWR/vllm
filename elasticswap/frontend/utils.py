@@ -7,6 +7,7 @@ from queue import Queue, Empty
 from os import environ
 from subprocess import call, Popen, PIPE
 from lorem_text import lorem
+import multiprocessing
 
 import numpy as np
 # from workload import workload0, workload1
@@ -158,6 +159,7 @@ def run_experiment(
     ws_control_deadline = 1.0,
     ws_size_fraction = 1.1,
     debug = False,
+    timeout = 120,
 ):
     retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
     exp_path = os.path.join(results_path, exp_name)
@@ -223,8 +225,24 @@ def run_experiment(
     """
     execute workloads
     """
-    execute_workload_fn(port=port)
+    def run_workload_in_subprocess():
+        execute_workload_fn(port=port)
+    
+    print('Launching experiment with timeout %d' % timeout)
+    process = multiprocessing.Process(target=run_workload_in_subprocess)
+    process.start()
+    process.join(timeout=timeout)
 
+    if process.is_alive():
+        print("Workload process is hanging, force killing...")
+        process.terminate()
+        process.join(timeout=5)
+        if process.is_alive():
+            print("Process won't terminate, using SIGKILL...")
+            process.kill()
+            process.join()
+
+    print('Done executing workloads, waiting for 60 seconds')
     time.sleep(60)
     
 
