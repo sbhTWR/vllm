@@ -372,22 +372,35 @@ async def run_dags_with_arrival_times(dags,
     # Start background executor loop
     executor_task = asyncio.create_task(executor.run_forever())
 
-    # try:
-    agent_id = 0
-    for dag, arrival_time in zip(dags, arrival_times):
-        print("sleeping for %f seconds" % arrival_time)
-        # time.sleep(arrival_time)
-        await asyncio.sleep(arrival_time)
-        print("submitting dag=%d" % agent_id)
-        await executor.submit_dag(dag, "agent_%d" % agent_id)
-        agent_id += 1 
+    try:
+        agent_id = 0
+        for dag, arrival_time in zip(dags, arrival_times):
+            print("sleeping for %f seconds" % arrival_time)
+            # time.sleep(arrival_time)
+            await asyncio.sleep(arrival_time)
+            print("submitting dag=%d" % agent_id)
+            try:
+                await executor.submit_dag(dag, "agent_%d" % agent_id)
+            except Exception as e:
+                print(f"Error submitting DAG: {e}")
+                
+            agent_id += 1 
 
-    executor.shutdown(drain=wait_for_all_done)
-    # if wait_for_all_done:
-    #     await executor.await_all_done()
+        executor.shutdown(drain=wait_for_all_done)
+        # if wait_for_all_done:
+        #     await executor.await_all_done()
 
-    await executor_task
-    print("All finished DAGs")
+        await executor_task
+        print("All finished DAGs")
+    
+    except Exception as e:
+        print(f"Error: {e}")
+        executor.shutdown(drain=False)
+        executor_task.cancel()
+        try:
+            await executor_task
+        except asyncio.CancelledError:
+            pass
 
     # except asyncio.CancelledError:
     #     print("Executor timed out!")
@@ -538,7 +551,7 @@ def main():
     #         0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 
     #         0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
-    rates = [0.5]
+    rates = [0.2]
 
     # rates = [2.0, 3.0, 4.0, 5.0]
     # rates = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
@@ -569,11 +582,13 @@ def main():
     # rates = [0.04]
     # rates = [0.1]
     # t = 1200
-    t = 120
+    t = 1200
     # enable_returning_queue = True
     enable_swap_budget = False
     swap_budget_type = "fixed"
     swap_budget_frac = 1
+    cache_ttl_value = 0
+    pinned_memory_frac = 0.0
     enable_cache_heirarchy = False
     multi_tenant = False
     port = 8000
@@ -623,7 +638,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-147-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-148-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -670,43 +685,44 @@ def main():
         for cache_ttl_value in [0]:
             for pinned_memory_frac in [0.0]:
             # for pinned_memory_frac in [0.0]:
-                # exps.append(
-                #     {
-                #         "execute_workload_fn": exec_workload_fn,
-                #         'results_path': results_path,
-                #         'exp_name': exp_name + '-ttl-%d-pinned-%d' % (cache_ttl_value, int(pinned_memory_frac*100)),
-                #         'config_name': "swap-hint",
-                #         'env': env,
-                #         'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-                #         'tp_size': 1, 
-                #         'pp_size': 1, 
-                #         'swap_space': 1,
-                #         'evict_token_thresh': 99999999999,
-                #         'evict_token_count': 0,
-                #         'enable_chunked_prefill': True,
-                #         'fr_policy': "default",
-                #         'swap_strategy': "swap-hints",
-                #         'block_allocator': "CpuOffloadingBlockAllocator",
-                #         'port': port,
-                #         'enable_returning_queue': True, 
-                #         'returning_queue_sched_policy': "prio",
-                #         'returning_queue_sort_freq': 1.0,
-                #         'enable_swap_budget': False,
-                #         'swap_budget_type': "fixed",
-                #         'swap_budget_frac': 0.0,
-                #         'enable_eager_evict': False,
-                #         'cache_pin_ttl': cache_ttl_value,
-                #         'pinned_memory_frac': pinned_memory_frac,
-                #         'enable_cache_heirarchy': enable_cache_heirarchy,
-                #         'max_num_seqs': max_num_seqs,
-                #         'max_num_batched_tokens': max_num_batched_tokens,
-                #         'enable_ws_control': True,
-                #         'ws_control_policy': "ws-hint",
-                #         'ws_control_deadline': 3.0,
-                #         'ws_size_fraction': 1.1,
-                #         'debug': DEBUG,
-                #     }
-                # )
+                exps.append(
+                    {
+                        "execute_workload_fn": exec_workload_fn,
+                        'results_path': results_path,
+                        'exp_name': exp_name + '-ttl-%d-pinned-%d' % (cache_ttl_value, int(pinned_memory_frac*100)),
+                        'config_name': "swap-hint",
+                        'env': env,
+                        'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+                        'tp_size': 1, 
+                        'pp_size': 1, 
+                        'swap_space': 1,
+                        'evict_token_thresh': 99999999999,
+                        'evict_token_count': 0,
+                        'enable_chunked_prefill': True,
+                        'fr_policy': "default",
+                        'swap_strategy': "swap-hints",
+                        'block_allocator': "CpuOffloadingBlockAllocator",
+                        'port': port,
+                        'enable_returning_queue': True, 
+                        'returning_queue_sched_policy': "prio",
+                        'returning_queue_sort_freq': 1.0,
+                        'enable_swap_budget': False,
+                        'swap_budget_type': "fixed",
+                        'swap_budget_frac': 0.0,
+                        'enable_eager_evict': False,
+                        'cache_pin_ttl': cache_ttl_value,
+                        'pinned_memory_frac': pinned_memory_frac,
+                        'enable_cache_heirarchy': enable_cache_heirarchy,
+                        'max_num_seqs': max_num_seqs,
+                        'max_num_batched_tokens': max_num_batched_tokens,
+                        'enable_ws_control': True,
+                        'ws_control_policy': "ws-hint",
+                        'ws_control_deadline': 6.0,
+                        'ws_size_fraction': 1.2,
+                        'debug': DEBUG,
+                        'timeout': timeout,
+                    }
+                )
                 exps.append(
                     {
                         "execute_workload_fn": exec_workload_fn,
@@ -739,8 +755,8 @@ def main():
                         'max_num_batched_tokens': max_num_batched_tokens,
                         'enable_ws_control': True,
                         'ws_control_policy': "ws-deadline",
-                        'ws_control_deadline': 3.0,
-                        'ws_size_fraction': 1.1,
+                        'ws_control_deadline': 6.0,
+                        'ws_size_fraction': 1.2,
                         'debug': DEBUG,
                         'timeout': timeout,
                     }

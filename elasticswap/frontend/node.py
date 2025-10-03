@@ -100,22 +100,30 @@ class LLMCallNode(Node):
         # Append prompt to context
         store.append("user", user_msg)
 
-        response = await asyncio.to_thread(client.chat.completions.create,
-                messages=store.construct_openai_message(),
-                model=store.model,
-                temperature=0,
-                max_tokens=128,
-                user=json.dumps({"id": store.agentid,
-                                 "type": "append",
-                                 "hints": self.metadata
-                                 })
-            )
+        print(f"[{store.agentid}] Starting OpenAI API call for {self.name}")
+        
+        try:
+            response = await asyncio.to_thread(client.chat.completions.create,
+                    messages=store.construct_openai_message(),
+                    model=store.model,
+                    temperature=0,
+                    max_tokens=128,
+                    user=json.dumps({"id": store.agentid,
+                                     "type": "append",
+                                     "hints": self.metadata
+                                     })
+                )
+            print(f"[{store.agentid}] OpenAI API call completed for {self.name}")
+        except Exception as e:
+            print(f"[{store.agentid}] OpenAI API call FAILED for {self.name}: {e}")
+            raise
 
         response = response.choices[0].message.content
 
         # Append assistant reply
         store.append("assistant", response)
         store.set_value(self.name, response)
+        print(f"[{store.agentid}] Node {self.name} completed successfully")
 
 
 class ToolCallNode(Node):
@@ -145,16 +153,20 @@ class ToolCallNode(Node):
                                     client: Optional[openai.OpenAI] = None):
         inputs = await self.resolve_inputs(store)
 
-        print(inputs)
+        print(f"[{store.agentid}] Starting ToolCall {self.name} with inputs: {inputs}")
 
         if self.expected_time:
+            print(f"[{store.agentid}] ToolCall {self.name} sleeping for {self.expected_time} seconds")
             # Simulate expected processing time
             await asyncio.sleep(self.expected_time)
         else:
             await asyncio.sleep(0.05)
+        
+        print(f"[{store.agentid}] ToolCall {self.name} executing function")
         result = self.tool_fn(**inputs)
         # store.append("tool", f"Tool result: {result}")
         store.set_value(self.name, result)
+        print(f"[{store.agentid}] ToolCall {self.name} completed successfully")
 
 
 class WhileLoopNode(Node):

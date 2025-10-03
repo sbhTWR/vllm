@@ -202,6 +202,12 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                     if last_accessed == self.ws_table[request_id].last_accessed:
                         if self.ws_table[request_id].active:
                             break
+                        # print evict conditions 
+                        num_blocks = self.ws_table[request_id].num_blocks
+                        cond = last_accessed < time.time() - self.ws_control_deadline
+                        logger.info("[elasticswap] [ws_control] trying to evict request_id=%s num_blocks=%d time_now=%f last_accessed=%f deadline (lru)=%f cond=%s" 
+                                    % (request_id, num_blocks, time.time(), last_accessed, last_accessed + self.ws_control_deadline, cond))
+
                         if last_accessed < time.time() - self.ws_control_deadline:
                             num_blocks = self.ws_table[request_id].num_blocks
                             num_blocks_evicted += num_blocks
@@ -219,8 +225,14 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                     if last_accessed == self.ws_table[request_id].last_accessed:
                         if self.ws_table[request_id].active:
                             break
-                        if -kv_reuse_expected_time + self.ws_control_deadline < time.time() \
-                        or self.ws_table[request_id].kv_reuse_expected_duration_s > self.kv_reuse_hard_limit:
+                        cond = -kv_reuse_expected_time + self.ws_control_deadline < time.time() \
+                        or self.ws_table[request_id].kv_reuse_expected_duration_s > self.kv_reuse_hard_limit
+                        num_blocks = self.ws_table[request_id].num_blocks
+                        kv_reuse_expected_duration_s = self.ws_table[request_id].kv_reuse_expected_duration_s
+                        logger.info("[elasticswap] [ws_control] trying to evict request_id=%s num_blocks=%d kv_reuse_expected_duration_s=%f time_now=%f kv_reuse_expected_time=%f deadline (hint)=%f cond=%s" 
+                                    % (request_id, num_blocks, kv_reuse_expected_duration_s, time.time(), -kv_reuse_expected_time, -kv_reuse_expected_time + self.ws_control_deadline, cond))
+                        if self.ws_table[request_id].kv_reuse_expected_duration_s > self.kv_reuse_hard_limit\
+                            or -kv_reuse_expected_time + self.ws_control_deadline < time.time():
                             num_blocks = self.ws_table[request_id].num_blocks
                             num_blocks_evicted += num_blocks
                             kv_reuse_expected_duration_s = self.ws_table[request_id].kv_reuse_expected_duration_s
@@ -276,15 +288,22 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                         % (request_id, ws_meta_data.num_blocks, ws_meta_data.last_accessed, ws_meta_data.kv_reuse_expected_duration_s, ws_meta_data.active))
         logger.info("[elasticswap] [ws_control] =========end: ws_table=========")
 
+    def print_ws_stats(self):
+        num_blocks_in_ws = self.get_num_blocks_in_ws()
+        num_blocks_active = sum(ws_meta_data.num_blocks for ws_meta_data in self.ws_table.values() if ws_meta_data.active)
+        # logger.info("[elasticswap] [ws_control] num_blocks_in_ws=%d num_blocks_active=%d num_blocks_threshold=%d" 
+        #                             % (num_blocks_in_ws, num_blocks_active, self.ws_size_threshold))
+
     def get_num_blocks_in_ws(self):
         return sum(ws_meta_data.num_blocks for ws_meta_data in self.ws_table.values())
-    
+
     def can_allocate_ws(self, num_blocks_required: int):
         if not self.enable_ws_control:
             return True
         num_blocks_in_ws = self.get_num_blocks_in_ws()
         # evict from ws if necessary
-        if num_blocks_in_ws > self.ws_size_threshold:
+        if num_blocks_in_ws > self.ws_size_threshold\
+            or num_blocks_required + num_blocks_in_ws > self.ws_size_threshold:
             self.evict_ws(num_blocks_target=num_blocks_required)
             num_blocks_in_ws = self.get_num_blocks_in_ws()
         
@@ -295,8 +314,9 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             #             % (num_blocks_in_ws, num_blocks_required))
             return True
         else:
-            # logger.info("[elasticswap] [ws_control] can_allocate_ws: False num_blocks_in_ws=%d num_blocks_required=%d" 
-            #             % (num_blocks_in_ws, num_blocks_required))
+            logger.info("[elasticswap] [ws_control] can_allocate_ws: False num_blocks_in_ws=%d num_blocks_required=%d" 
+                        % (num_blocks_in_ws, num_blocks_required))
+            self.print_ws_table()
             return False
         
 

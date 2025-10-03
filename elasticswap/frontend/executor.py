@@ -29,10 +29,18 @@ class AsyncDAGExecutor:
         return self.store
 
     async def run_openai_client(self) -> ContextStore:
+        print(f"[{self.agentid}] Starting DAG execution with {len(self.nodes)} nodes")
         try:
             tasks = [asyncio.create_task(node.execute_openai_client(self.store, self.client)) for node in self.nodes]
+            print(f"[{self.agentid}] Created {len(tasks)} tasks, waiting for completion...")
             await asyncio.gather(*tasks)
+            print(f"[{self.agentid}] All tasks completed successfully")
             return self.store
+        except Exception as e:
+            print(f"[{self.agentid}] DAG execution FAILED: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         finally:
             # Close the httpx client through the OpenAI client
             if self.client and hasattr(self.client, '_client') and self.client._client:
@@ -48,6 +56,26 @@ class MultiDAGExecutor:
         self.pending_tasks = set()
         self._shutdown = False
         self._drain_on_shutdown = True
+
+
+    def _check_task_exception(self, task):
+        self.pending_tasks.discard(task)
+        if task.cancelled():
+            print(f"=== TASK CANCELLED ===")
+            print(f"Task: {task.get_name()}")
+        elif task.exception() is not None:
+            exc = task.exception()
+            print(f"=== DAG EXECUTION FAILED ===")
+            print(f"Task: {task.get_name()}")
+            print(f"Exception: {exc}")
+            print(f"Exception type: {type(exc).__name__}")
+            import traceback
+            traceback.print_exception(type(exc), exc, exc.__traceback__)
+            print(f"=== END ERROR ===")
+        else:
+            print(f"=== DAG COMPLETED SUCCESSFULLY ===")
+            print(f"Task: {task.get_name()}")
+            print(f"=== END SUCCESS ===")
 
     async def submit_dag(self, nodes: List[Node], dag_name: str):
         """Submit a new DAG to be executed."""
@@ -66,7 +94,7 @@ class MultiDAGExecutor:
             task = asyncio.create_task(dag_executor.run_openai_client())
             self.pending_tasks.add(task)
 
-            task.add_done_callback(self.pending_tasks.discard)
+            task.add_done_callback(self._check_task_exception)
         
         print("All DAGs complete. Executor exiting.")
 
