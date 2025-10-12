@@ -144,12 +144,15 @@ class FreeBlockSwapScheduler:
                 if (block_id in self.free_table and
                         self.free_table[block_id].last_accessed == last_accessed):
                     
+                    agent_id = self.free_table[block_id].last_accessed_by_user
                     delta = abs(reuse_expected_time) - time.time()
-                    logger.info("[evictor] [hint] delta=%s cache_pin_ttl=%s" 
-                                            % (delta, cache_pin_ttl))
-                    if cache_pin_ttl and (delta < cache_pin_ttl) and (-cache_pin_ttl < delta):
+                    logger.info("[evictor] [hint] delta=%s cache_pin_ttl=%s agent_id=%s" 
+                                            % (delta, cache_pin_ttl, agent_id))
+                    if cache_pin_ttl\
+                    and abs(reuse_expected_time) + 5 > time.time()\
+                    and (delta < cache_pin_ttl):
                         
-
+                        # persist 
                         # restore the block in evictor 
                         heapq.heappush(
                             self.priority_queue,

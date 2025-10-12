@@ -16,6 +16,11 @@ DEBUG = os.environ.get('DEBUG', '0') == '1'
 random.seed(42)
 np.random.seed(42)
 
+# MUST be set BEFORE importing vllm or transformers
+os.environ["HF_HOME"] = "/vllm/models/.cache"
+os.environ["TRANSFORMERS_CACHE"] = "/vllm/models/.cache"
+os.environ["HF_HUB_CACHE"] = "/vllm/models/.cache"
+os.environ["HF_DATASETS_CACHE"] = "/vllm/models/.cache"
 
 # def sample_toolcall_duration_fixed(
 #     rng=None,
@@ -364,11 +369,12 @@ def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens,
 async def run_dags_with_arrival_times(dags, 
                                       arrival_times,
                                       port=8000,
+                                      model="Qwen/Qwen2.5-Coder-32B-Instruct",
                                       wait_for_all_done=False):
     """
     Init multi executor 
     """
-    executor = MultiDAGExecutor(port=port)
+    executor = MultiDAGExecutor(port=port, model=model)
     # Start background executor loop
     executor_task = asyncio.create_task(executor.run_forever())
 
@@ -453,6 +459,7 @@ def execute_workload_variable_interrupts(
                                          seed=42,
                                          multi_tenant=False,
                                          port=8000, 
+                                         model="Qwen/Qwen2.5-Coder-32B-Instruct",
                                          wait_for_all_done=False,
                                          timeout=3):
     
@@ -502,6 +509,7 @@ def execute_workload_variable_interrupts(
                                  dags=dags,
                                  arrival_times=arrival_times,
                                  port=port,
+                                 model=model,
                                  wait_for_all_done=wait_for_all_done))
 
 
@@ -551,13 +559,16 @@ def main():
     #         0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 
     #         0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
-    rates = [0.2]
+    # rates = [0.2]
 
     # rates = [2.0, 3.0, 4.0, 5.0]
     # rates = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    batch_sizes = [1, 2, 4, 8, 16]
+    # rates = [0.02]
     # rates = [0.06, 0.07, 0.08, 0.09]
 
 
@@ -582,7 +593,7 @@ def main():
     # rates = [0.04]
     # rates = [0.1]
     # t = 1200
-    t = 1200
+    t = 600
     # enable_returning_queue = True
     enable_swap_budget = False
     swap_budget_type = "fixed"
@@ -593,10 +604,13 @@ def main():
     multi_tenant = False
     port = 8000
     max_num_seqs = 200
-    cuda_device = 7
+    cuda_device = 4
     wait_for_all_done = False
     max_num_batched_tokens = 2048
     timeout = t
+    model = "Qwen/Qwen2.5-Coder-32B-Instruct"
+    rope_scaling = '{"rope_type":"yarn","factor":7.0,"original_max_position_embeddings":32768}'
+    max_model_len = 200000
 
     for rate in rates:
         num_events = int(rate * t)
@@ -638,7 +652,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-148-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-154-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -678,6 +692,7 @@ def main():
                                    multi_tenant=multi_tenant,
                                    port=port,
                                    wait_for_all_done=wait_for_all_done,
+                                   model=model,
                                    timeout=timeout)
 
         exps = []
@@ -685,82 +700,87 @@ def main():
         for cache_ttl_value in [0]:
             for pinned_memory_frac in [0.0]:
             # for pinned_memory_frac in [0.0]:
-                exps.append(
-                    {
-                        "execute_workload_fn": exec_workload_fn,
-                        'results_path': results_path,
-                        'exp_name': exp_name + '-ttl-%d-pinned-%d' % (cache_ttl_value, int(pinned_memory_frac*100)),
-                        'config_name': "swap-hint",
-                        'env': env,
-                        'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-                        'tp_size': 1, 
-                        'pp_size': 1, 
-                        'swap_space': 1,
-                        'evict_token_thresh': 99999999999,
-                        'evict_token_count': 0,
-                        'enable_chunked_prefill': True,
-                        'fr_policy': "default",
-                        'swap_strategy': "swap-hints",
-                        'block_allocator': "CpuOffloadingBlockAllocator",
-                        'port': port,
-                        'enable_returning_queue': True, 
-                        'returning_queue_sched_policy': "prio",
-                        'returning_queue_sort_freq': 1.0,
-                        'enable_swap_budget': False,
-                        'swap_budget_type': "fixed",
-                        'swap_budget_frac': 0.0,
-                        'enable_eager_evict': False,
-                        'cache_pin_ttl': cache_ttl_value,
-                        'pinned_memory_frac': pinned_memory_frac,
-                        'enable_cache_heirarchy': enable_cache_heirarchy,
-                        'max_num_seqs': max_num_seqs,
-                        'max_num_batched_tokens': max_num_batched_tokens,
-                        'enable_ws_control': True,
-                        'ws_control_policy': "ws-hint",
-                        'ws_control_deadline': 6.0,
-                        'ws_size_fraction': 1.2,
-                        'debug': DEBUG,
-                        'timeout': timeout,
-                    }
-                )
-                exps.append(
-                    {
-                        "execute_workload_fn": exec_workload_fn,
-                        'results_path': results_path,
-                        'exp_name': exp_name + '-ttl-%d-pinned-%d' % (cache_ttl_value, int(pinned_memory_frac*100)),
-                        'config_name': "swap-lru",
-                        'env': env,
-                        'model': "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
-                        'tp_size': 1, 
-                        'pp_size': 1, 
-                        'swap_space': 1,
-                        'evict_token_thresh': 99999999999,
-                        'evict_token_count': 0,
-                        'enable_chunked_prefill': True,
-                        'fr_policy': "default",
-                        'swap_strategy': "swap-lru",
-                        'block_allocator': "CpuGpuBlockAllocator",
-                        'port': port,
-                        'enable_returning_queue': True,
-                        'returning_queue_sched_policy': "prio",
-                        'returning_queue_sort_freq': 1.0,
-                        'enable_swap_budget': False,
-                        'swap_budget_type': "fixed",
-                        'swap_budget_frac': 0.0,
-                        'enable_eager_evict': False,
-                        'cache_pin_ttl': cache_ttl_value,
-                        'pinned_memory_frac': 0.0,
-                        'enable_cache_heirarchy': enable_cache_heirarchy,
-                        'max_num_seqs': max_num_seqs,
-                        'max_num_batched_tokens': max_num_batched_tokens,
-                        'enable_ws_control': True,
-                        'ws_control_policy': "ws-deadline",
-                        'ws_control_deadline': 6.0,
-                        'ws_size_fraction': 1.2,
-                        'debug': DEBUG,
-                        'timeout': timeout,
-                    }
-                )
+                for batch_size in batch_sizes:
+                    exps.append(
+                        {
+                            "execute_workload_fn": exec_workload_fn,
+                            'results_path': results_path,
+                            'exp_name': exp_name + '-batch-%d' % (batch_size),
+                            'config_name': "swap-hint",
+                            'env': env,
+                            'model': model,
+                            'rope_scaling': rope_scaling,
+                            'max_model_len': max_model_len,
+                            'tp_size': 1, 
+                            'pp_size': 1, 
+                            'swap_space': 1,
+                            'evict_token_thresh': 99999999999,
+                            'evict_token_count': 0,
+                            'enable_chunked_prefill': True,
+                            'fr_policy': "default",
+                            'swap_strategy': "swap-hints",
+                            'block_allocator': "CpuOffloadingBlockAllocator",
+                            'port': port,
+                            'enable_returning_queue': True, 
+                            'returning_queue_sched_policy': "prio",
+                            'returning_queue_sort_freq': 1.0,
+                            'enable_swap_budget': False,
+                            'swap_budget_type': "fixed",
+                            'swap_budget_frac': 0.0,
+                            'enable_eager_evict': False,
+                            'cache_pin_ttl': cache_ttl_value,
+                            'pinned_memory_frac': pinned_memory_frac,
+                            'enable_cache_heirarchy': enable_cache_heirarchy,
+                            'max_num_seqs': batch_size,
+                            'max_num_batched_tokens': max_num_batched_tokens,
+                            'enable_ws_control': False,
+                            'ws_control_policy': "ws-hint",
+                            'ws_control_deadline': 6.0,
+                            'ws_size_fraction': 1.2,
+                            'debug': DEBUG,
+                            'timeout': timeout,
+                        }
+                    )
+                    exps.append(
+                        {
+                            "execute_workload_fn": exec_workload_fn,
+                            'results_path': results_path,
+                            'exp_name': exp_name + '-batch-%d' % (batch_size),
+                            'config_name': "swap-lru",
+                            'env': env,
+                            'model': model,
+                            'rope_scaling': rope_scaling,
+                            'max_model_len': max_model_len,
+                            'tp_size': 1, 
+                            'pp_size': 1, 
+                            'swap_space': 1,
+                            'evict_token_thresh': 99999999999,
+                            'evict_token_count': 0,
+                            'enable_chunked_prefill': True,
+                            'fr_policy': "default",
+                            'swap_strategy': "swap-lru",
+                            'block_allocator': "CpuGpuBlockAllocator",
+                            'port': port,
+                            'enable_returning_queue': True,
+                            'returning_queue_sched_policy': "prio",
+                            'returning_queue_sort_freq': 1.0,
+                            'enable_swap_budget': False,
+                            'swap_budget_type': "fixed",
+                            'swap_budget_frac': 0.0,
+                            'enable_eager_evict': False,
+                            'cache_pin_ttl': cache_ttl_value,
+                            'pinned_memory_frac': 0.0,
+                            'enable_cache_heirarchy': enable_cache_heirarchy,
+                            'max_num_seqs': batch_size,
+                            'max_num_batched_tokens': max_num_batched_tokens,
+                            'enable_ws_control': False,
+                            'ws_control_policy': "ws-deadline",
+                            'ws_control_deadline': 6.0,
+                            'ws_size_fraction': 1.2,
+                            'debug': DEBUG,
+                            'timeout': timeout,
+                        }
+                    )
 
         for exp in exps:
             run_experiment(**exp)

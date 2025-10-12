@@ -932,6 +932,7 @@ class Scheduler:
             ws_control_policy=self.scheduler_config.ws_control_policy,
             ws_control_deadline=self.scheduler_config.ws_control_deadline,
             ws_size_fraction=self.scheduler_config.ws_size_fraction,
+            enable_eager_evict=self.scheduler_config.enable_eager_evict,
             )
 
         # Sequence groups in the WAITING state.
@@ -1782,8 +1783,9 @@ class Scheduler:
                             check_ws=check_ws
             )
 
-            # logger.info("[DEBUG] _schedule_prefills: can_allocate=%s for seq_group=%s", 
-            #            can_allocate.name, seq_group.request_id)
+            # logger.info("[DEBUG] _schedule_prefills: can_allocate_attempt_1=%s for seq_group=%s", 
+                    #    can_allocate.name, seq_group.request_id)
+
 
             if can_allocate == AllocStatus.LATER:
                 # try eviction proactively
@@ -1791,8 +1793,8 @@ class Scheduler:
                 self.memory_pressure_evict_if_necessary()
                 can_allocate = self.block_manager.can_allocate(
                     seq_group, num_lookahead_slots=num_lookahead_slots, check_ws=check_ws)
-                # logger.info("[DEBUG] _schedule_prefills: after eviction, can_allocate=%s for seq_group=%s", 
-                #            can_allocate.name, seq_group.request_id)
+                # logger.info("[DEBUG] _schedule_prefills: can_allocate_attempt_2: after eviction, can_allocate=%s for seq_group=%s", 
+                        #    can_allocate.name, seq_group.request_id)
 
             if can_allocate == AllocStatus.LATER:
                 break
@@ -1847,9 +1849,10 @@ class Scheduler:
             if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
                 gpu_allocator = self.block_manager.block_allocator._allocators[Device.GPU]
                 if hasattr(gpu_allocator, 'swap_scheduler'):
-                    # logger.info("[DEBUG] _schedule_prefills: BEFORE ALLOCATION - swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
-                    #            gpu_allocator.swap_scheduler.num_blocks, 
-                    #            getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
+                    logger.info("[DEBUG] _schedule_prefills: BEFORE ALLOCATION - hashless_blocks=%d swap_scheduler.num_blocks=%d, pinned_blocks_thresh=%d", 
+                               gpu_allocator._hashless_allocator.get_num_free_blocks(),
+                               gpu_allocator.swap_scheduler.num_blocks, 
+                               getattr(gpu_allocator.swap_scheduler, 'pinned_blocks_thresh', 0))
                     
                     pass
             
@@ -1976,18 +1979,18 @@ class Scheduler:
 
                 # logger.info("[elasticswap] scheduling prio --> returning; waiting")
 
-                logger.info("[elasticswap] calling schedule_prefills for returning queue with check_ws=False")
+                # logger.info("[elasticswap] calling schedule_prefills for returning queue with check_ws=False")
                 # print returning queue 
-                logger.info("[elasticswap] returning queue=%s" % [group.user_id for group in self.returning])
+                # logger.info("[elasticswap] returning queue=%s" % [group.user_id for group in self.returning])
                 prefills_returning = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
                                                 queue=self.returning,
                                                 check_ws=False)
 
-                logger.info("[elasticswap] calling schedule_prefills for waiting queue with check_ws=True")
+                # logger.info("[elasticswap] calling schedule_prefills for waiting queue with check_ws=True")
                 # print waiting queue 
-                logger.info("[elasticswap] waiting queue=%s" % [group.user_id for group in self.waiting])
+                # logger.info("[elasticswap] waiting queue=%s" % [group.user_id for group in self.waiting])
                 prefills = self._schedule_prefills(budget,
                                                 curr_loras,
                                                 enable_chunking=False,
@@ -2220,8 +2223,8 @@ class Scheduler:
                 free_blocks = gpu_allocator._hashless_allocator.get_num_free_blocks()
                 evictable_blocks = gpu_allocator.swap_scheduler.num_blocks
                 used_blocks = total_blocks - free_blocks - evictable_blocks
-                logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
-                           total_blocks, free_blocks, evictable_blocks, used_blocks)
+                # logger.info("[DEBUG] _schedule_default: total_blocks=%d, free_blocks=%d, evictable_blocks=%d, used_blocks=%d", 
+                        #    total_blocks, free_blocks, evictable_blocks, used_blocks)
         else:
             # we just want to print everything here to know the state of the cache
             if hasattr(self.block_manager.block_allocator, '_allocators') and Device.GPU in self.block_manager.block_allocator._allocators:
@@ -2279,7 +2282,7 @@ class Scheduler:
 
             # logger.info("[elasticswap] scheduling prio --> returning; waiting")
             # logger.info("[elasticswap] calling schedule_prefills for returning queue with check_ws=False")
-            logger.info("[elasticswap] returning queue=%s" % [group.user_id for group in self.returning])
+            # logger.info("[elasticswap] returning queue=%s" % [group.user_id for group in self.returning])
             prefills_returning = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,
@@ -2287,7 +2290,7 @@ class Scheduler:
                                             check_ws=False)
 
             # logger.info("[elasticswap] calling schedule_prefills for waiting queue with check_ws=True")
-            logger.info("[elasticswap] waiting queue=%s" % [group.user_id for group in self.waiting])
+            # logger.info("[elasticswap] waiting queue=%s" % [group.user_id for group in self.waiting])
             prefills = self._schedule_prefills(budget,
                                             curr_loras,
                                             enable_chunking=True,

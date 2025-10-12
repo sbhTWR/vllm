@@ -113,6 +113,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         ws_control_policy: WsControlPolicy = WsControlPolicy.WS_DEADLINE,
         ws_control_deadline: float = 1.0,
         ws_size_fraction: float = 1.1,
+        enable_eager_evict: bool = False,
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
@@ -137,6 +138,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         self.enable_caching = enable_caching
 
         self.watermark_blocks = int(watermark * num_gpu_blocks)
+
+        self.enable_eager_evict = enable_eager_evict
 
         self.block_allocator = block_allocator_creator[block_allocator](
             allocator_type="prefix_caching" if enable_caching else "naive",
@@ -229,16 +232,16 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                         or self.ws_table[request_id].kv_reuse_expected_duration_s > self.kv_reuse_hard_limit
                         num_blocks = self.ws_table[request_id].num_blocks
                         kv_reuse_expected_duration_s = self.ws_table[request_id].kv_reuse_expected_duration_s
-                        logger.info("[elasticswap] [ws_control] trying to evict request_id=%s num_blocks=%d kv_reuse_expected_duration_s=%f time_now=%f kv_reuse_expected_time=%f deadline (hint)=%f cond=%s" 
-                                    % (request_id, num_blocks, kv_reuse_expected_duration_s, time.time(), -kv_reuse_expected_time, -kv_reuse_expected_time + self.ws_control_deadline, cond))
+                        # logger.info("[elasticswap] [ws_control] trying to evict request_id=%s num_blocks=%d kv_reuse_expected_duration_s=%f time_now=%f kv_reuse_expected_time=%f deadline (hint)=%f cond=%s" 
+                                    # % (request_id, num_blocks, kv_reuse_expected_duration_s, time.time(), -kv_reuse_expected_time, -kv_reuse_expected_time + self.ws_control_deadline, cond))
                         if self.ws_table[request_id].kv_reuse_expected_duration_s > self.kv_reuse_hard_limit\
                             or -kv_reuse_expected_time + self.ws_control_deadline < time.time():
                             num_blocks = self.ws_table[request_id].num_blocks
                             num_blocks_evicted += num_blocks
                             kv_reuse_expected_duration_s = self.ws_table[request_id].kv_reuse_expected_duration_s
                             self.ws_table.pop(request_id)
-                            logger.info("[elasticswap] [ws_control] evicting request_id=%s num_blocks=%d kv_reuse_expected_duration_s=%f time_now=%f kv_reuse_expected_time=%f deadline (hint)=%f" 
-                                        % (request_id, num_blocks, kv_reuse_expected_duration_s, time.time(), kv_reuse_expected_time, -kv_reuse_expected_time + self.ws_control_deadline))
+                            # logger.info("[elasticswap] [ws_control] evicting request_id=%s num_blocks=%d kv_reuse_expected_duration_s=%f time_now=%f kv_reuse_expected_time=%f deadline (hint)=%f" 
+                                        # % (request_id, num_blocks, kv_reuse_expected_duration_s, time.time(), kv_reuse_expected_time, -kv_reuse_expected_time + self.ws_control_deadline))
                         else:
                             heapq.heappush(self.ws_priority_queue, (kv_reuse_expected_time, last_accessed, request_id))
                             break
@@ -247,7 +250,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             else:
                 break
 
-        logger.info("[elasticswap] [ws_control] evicted %d blocks" % num_blocks_evicted)
+        # logger.info("[elasticswap] [ws_control] evicted %d blocks" % num_blocks_evicted)
         return num_blocks_evicted
 
     def cleanup_ws_pq_if_necessary(self):
@@ -314,9 +317,9 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             #             % (num_blocks_in_ws, num_blocks_required))
             return True
         else:
-            logger.info("[elasticswap] [ws_control] can_allocate_ws: False num_blocks_in_ws=%d num_blocks_required=%d" 
-                        % (num_blocks_in_ws, num_blocks_required))
-            self.print_ws_table()
+            # logger.info("[elasticswap] [ws_control] can_allocate_ws: False num_blocks_in_ws=%d num_blocks_required=%d" 
+                        # % (num_blocks_in_ws, num_blocks_required))
+            # self.print_ws_table()
             return False
         
 
@@ -416,14 +419,22 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
             num_evictable_blocks = self.block_allocator._allocators[Device.GPU].swap_scheduler.num_blocks
             num_hashless_blocks = self.block_allocator._allocators[Device.GPU]._hashless_allocator.get_num_free_blocks()
-            num_free_gpu_blocks = num_hashless_blocks + num_evictable_blocks - num_cached_blocks
+
+            if self.enable_eager_evict:
+                num_free_gpu_blocks = num_hashless_blocks
+            else:
+                num_free_gpu_blocks = num_hashless_blocks + num_evictable_blocks - num_cached_blocks
+            
+            # logger.info("[elasticswap] can_allocate [agent_id=%s]: num_free_gpu_blocks=%d num_hashless_blocks=%d num_evictable_blocks=%d num_cached_blocks=%d" 
+                                # % (seq_group.request_id, num_free_gpu_blocks, num_hashless_blocks, num_evictable_blocks, num_cached_blocks))
+            # num_free_gpu_blocks = num_hashless_blocks + num_evictable_blocks - num_cached_blocks
         else:
             num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
-                            device=Device.GPU)
+                                                            device=Device.GPU)
            
 
-        # logger.info("[elasticswap] can_allocate: num_required_blocks=%d num_free_gpu_blocks=%d check_ws=%s" 
-                                # % (num_required_blocks, num_free_gpu_blocks, check_ws))
+        # logger.info("[elasticswap] can_allocate [agent_id=%s]: num_required_blocks=%d num_free_gpu_blocks=%d check_ws=%s" 
+                                # % (seq_group.request_id, num_required_blocks, num_free_gpu_blocks, check_ws))
 
         # Use watermark to avoid frequent cache eviction.
         if (self.num_total_gpu_blocks - num_required_blocks
@@ -431,12 +442,16 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             # logger.info("[DEBUG] can_allocate: returning NEVER (insufficient total blocks)")
             return AllocStatus.NEVER
         if num_free_gpu_blocks - num_required_blocks >= self.watermark_blocks:
-            # logger.info("[DEBUG] can_allocate: returning OK (sufficient free blocks)")
             if check_ws and not self.can_allocate_ws(num_required_blocks):
                 return AllocStatus.LATER
+            
+            # logger.info("[DEBUG] can_allocate [agent_id=%s]: returning OK (sufficient free blocks)" 
+            #                     % (seq_group.request_id))
+
             return AllocStatus.OK
         else:
-            # logger.info("[DEBUG] can_allocate: returning LATER (insufficient free blocks)")
+            # logger.info("[DEBUG] can_allocate [agent_id=%s]: returning LATER (insufficient free blocks)" 
+            #                     % (seq_group.request_id))
             return AllocStatus.LATER
 
     def _allocate_sequence(self, seq: Sequence) -> BlockTable:

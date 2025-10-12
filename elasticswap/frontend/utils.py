@@ -132,6 +132,8 @@ def run_experiment(
         'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
     },
     model = "princeton-nlp/Llama-3-8B-ProLong-64k-Instruct",
+    rope_scaling = None,
+    max_model_len = None,
     tp_size = 1,
     pp_size = 1,
     swap_space = 100,
@@ -169,10 +171,11 @@ def run_experiment(
     output_log_file = vllm_log_file.split(".")[0] 
     # kill anything on port 
     # run_sync(['killport', str(port)])
+
     if debug:
         return
-    p, p_stdout, p_stderr, t_stdout, t_stderr = run_async(
-        [
+
+    vllm_args_list =         [
             "python3", "-m", "vllm.entrypoints.openai.api_server",
             "--model", model,
             "--tensor-parallel-size", str(tp_size),
@@ -206,7 +209,16 @@ def run_experiment(
             "--ws-control-policy", str(ws_control_policy),
             "--ws-control-deadline", str(ws_control_deadline),
             "--ws-size-fraction", str(ws_size_fraction),
-        ],
+        ]
+    if rope_scaling:
+        vllm_args_list.append("--rope-scaling")
+        vllm_args_list.append(str(rope_scaling))
+    if max_model_len:
+        vllm_args_list.append("--max-model-len")
+        vllm_args_list.append(str(max_model_len))
+
+    p, p_stdout, p_stderr, t_stdout, t_stderr = run_async(
+        vllm_args_list,
         output_filename=output_log_file,
         block_until_output="Uvicorn running",
         timeout=900,
