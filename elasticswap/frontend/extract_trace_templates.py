@@ -515,9 +515,25 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory, annotate: bool = True
         prev_llm_node = llm_node
     
     # Annotate with expected durations for scheduler hints
+    # For Claude traces, we want immediate tool wait time, not cumulative downstream
     if annotate:
-        from executor import annotate_expected_durations
-        annotate_expected_durations(nodes, is_batch_request=False)
+        # Custom annotation for sequential multi-turn traces
+        # Each LLM node should only know about its immediate tool wait time
+        for node in nodes:
+            if hasattr(node, 'prompt_token_ids'):  # LLM node
+                # Find immediate downstream tool nodes
+                immediate_tools = [n for n in node.downstream if hasattr(n, 'expected_time')]
+                
+                if immediate_tools:
+                    # Use max tool time (they execute in parallel)
+                    max_tool_time = max(t.expected_time for t in immediate_tools)
+                    node.metadata["kv_reuse_expected_duration_s"] = max_tool_time
+                else:
+                    # No tools after this turn - it's a leaf (final turn)
+                    node.metadata["kv_reuse_expected_duration_s"] = 9999999.0
+            else:  # Tool node
+                # Tools don't need this metadata
+                node.metadata["kv_reuse_expected_duration_s"] = 0.0
     
     return nodes
 

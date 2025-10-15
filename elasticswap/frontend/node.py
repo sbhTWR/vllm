@@ -106,6 +106,9 @@ class LLMCallNode(Node):
         
         # NEW: Support for raw token IDs
         if self.prompt_token_ids is not None:
+            # IMPORTANT: Wait for dependencies (e.g., previous turn) before executing
+            await self.resolve_inputs(store)
+            
             print(f"[{store.agentid}] Turn {self.turn_idx}: Starting with {len(self.prompt_token_ids)} token IDs")
             
             try:
