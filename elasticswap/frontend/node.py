@@ -70,9 +70,18 @@ class Node:
 
 
 class LLMCallNode(Node):
-    def __init__(self, prompt_template: str, llm_name: str = None, **kwargs):
+    def __init__(self, 
+                 prompt_template: str = None,
+                 prompt_token_ids: list[int] = None,  # NEW: Support raw tokens
+                 target_output_tokens: int = None,     # NEW: Control output length
+                 turn_idx: int = None,                 # NEW: For logging
+                 llm_name: str = None, 
+                 **kwargs):
         super().__init__(**kwargs)
         self.prompt_template = prompt_template
+        self.prompt_token_ids = prompt_token_ids
+        self.target_output_tokens = target_output_tokens
+        self.turn_idx = turn_idx
         self.llm_name = llm_name
 
     async def execute(self, store: ContextStore):
@@ -93,37 +102,68 @@ class LLMCallNode(Node):
     async def execute_openai_client(self, store: ContextStore, 
                                     client: Optional[openai.OpenAI] = None):
         
-        assert client != None
-        inputs = await self.resolve_inputs(store)
-        user_msg = self.prompt_template.format(**inputs)
-
-        # Append prompt to context
-        store.append("user", user_msg)
-
-        print(f"[{store.agentid}] Starting OpenAI API call for {self.name}")
+        assert client is not None
         
-        try:
-            response = await asyncio.to_thread(client.chat.completions.create,
+        # NEW: Support for raw token IDs
+        if self.prompt_token_ids is not None:
+            print(f"[{store.agentid}] Turn {self.turn_idx}: Starting with {len(self.prompt_token_ids)} token IDs")
+            
+            try:
+                response = await asyncio.to_thread(
+                    client.completions.create,
+                    model=store.model,
+                    prompt=self.prompt_token_ids,  # Use completions API with token IDs
+                    max_tokens=self.target_output_tokens or 128,
+                    temperature=0,
+                    user=json.dumps({
+                        "id": store.agentid,
+                        "type": "append",
+                        "hints": self.metadata
+                    })
+                )
+                result_text = response.choices[0].text
+                print(f"[{store.agentid}] Turn {self.turn_idx}: Completed, output: {len(result_text)} chars")
+                
+            except Exception as e:
+                print(f"[{store.agentid}] Turn {self.turn_idx}: FAILED: {e}")
+                raise
+            
+            store.set_value(self.name, result_text)
+            
+        else:
+            # EXISTING: Text-based prompt path
+            inputs = await self.resolve_inputs(store)
+            user_msg = self.prompt_template.format(**inputs)
+
+            # Append prompt to context
+            store.append("user", user_msg)
+
+            print(f"[{store.agentid}] Starting OpenAI API call for {self.name}")
+            
+            try:
+                response = await asyncio.to_thread(
+                    client.chat.completions.create,
                     messages=store.construct_openai_message(),
                     model=store.model,
                     temperature=0,
                     max_tokens=128,
-                    user=json.dumps({"id": store.agentid,
-                                     "type": "append",
-                                     "hints": self.metadata
-                                     })
+                    user=json.dumps({
+                        "id": store.agentid,
+                        "type": "append",
+                        "hints": self.metadata
+                    })
                 )
-            print(f"[{store.agentid}] OpenAI API call completed for {self.name}")
-        except Exception as e:
-            print(f"[{store.agentid}] OpenAI API call FAILED for {self.name}: {e}")
-            raise
+                print(f"[{store.agentid}] OpenAI API call completed for {self.name}")
+            except Exception as e:
+                print(f"[{store.agentid}] OpenAI API call FAILED for {self.name}: {e}")
+                raise
 
-        response = response.choices[0].message.content
+            response = response.choices[0].message.content
 
-        # Append assistant reply
-        store.append("assistant", response)
-        store.set_value(self.name, response)
-        print(f"[{store.agentid}] Node {self.name} completed successfully")
+            # Append assistant reply
+            store.append("assistant", response)
+            store.set_value(self.name, response)
+            print(f"[{store.agentid}] Node {self.name} completed successfully")
 
 
 class ToolCallNode(Node):

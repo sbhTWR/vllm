@@ -29,16 +29,28 @@ class RequestLogger:
         prompt_adapter_request: Optional[PromptAdapterRequest],
     ) -> None:
         max_log_len = self.max_log_len
+        
+        # For logging, truncate or summarize
+        prompt_summary = prompt
+        token_ids_summary = prompt_token_ids
+        
         if max_log_len is not None:
             if prompt is not None:
-                prompt = prompt[:max_log_len]
+                prompt_summary = prompt[:max_log_len]
 
             if prompt_token_ids is not None:
-                prompt_token_ids = prompt_token_ids[:max_log_len]
+                token_ids_summary = prompt_token_ids[:max_log_len]
+        
+        # If prompt_token_ids are provided, don't log the decoded text
+        # (it's often gibberish from random token IDs)
+        if prompt_token_ids is not None and len(prompt_token_ids) > 100:
+            # Just log the length and first few tokens
+            prompt_summary = f"<{len(prompt_token_ids)} tokens>"
+            token_ids_summary = f"{prompt_token_ids[:10]}...{prompt_token_ids[-5:]}"
 
         logger.info(
             "Received request %s: prompt: %r, "
             "params: %s, prompt_token_ids: %s, "
             "lora_request: %s, prompt_adapter_request: %s.", request_id,
-            prompt, params, prompt_token_ids, lora_request,
+            prompt_summary, params, token_ids_summary, lora_request,
             prompt_adapter_request)

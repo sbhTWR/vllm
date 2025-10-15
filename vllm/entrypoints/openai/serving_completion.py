@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import json
 import time
 from typing import AsyncGenerator, AsyncIterator, Dict, List, Optional
 from typing import Sequence as GenericSequence
@@ -71,6 +72,8 @@ class OpenAIServingCompletion(OpenAIServing):
             - suffix (the language models we currently support do not support
             suffix)
         """
+        logger.info("[elasticswap] completions API user_id=%s" % request.user)
+        
         error_check_ret = await self._check_model(request)
         if error_check_ret is not None:
             return error_check_ret
@@ -157,6 +160,7 @@ class OpenAIServingCompletion(OpenAIServing):
                         prompt_adapter_request=prompt_adapter_request,
                         trace_headers=trace_headers,
                         priority=request.priority,
+                        user_args=json.loads(request.user) if request.user else None,
                     )
 
                 generators.append(generator)

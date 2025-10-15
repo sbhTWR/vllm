@@ -8,6 +8,7 @@ from functools import partial
 from lorem_text import lorem
 import numpy as np
 from utils import run_experiment, ensure_dir
+from extract_trace_templates import generate_claude_trace_workload
 from executor import AsyncDAGExecutor, MultiDAGExecutor, annotate_expected_durations
 from node import Node, LLMCallNode, ToolCallNode, WhileLoopNode
 
@@ -163,7 +164,8 @@ def generate_variable_llm_toolcall_workload(num_requests: int,
         #     8000, 30000
         # ))
 
-        request_size = 30000
+        # change this to 60k
+        request_size = 60000
         
         # 2. Number of tool call interrupts
         # if num_interrupts is None:
@@ -368,6 +370,7 @@ def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens,
 
 async def run_dags_with_arrival_times(dags, 
                                       arrival_times,
+                                      dag_names=None,  # NEW: Optional custom names
                                       port=8000,
                                       model="Qwen/Qwen2.5-Coder-32B-Instruct",
                                       wait_for_all_done=False):
@@ -384,9 +387,16 @@ async def run_dags_with_arrival_times(dags,
             print("sleeping for %f seconds" % arrival_time)
             # time.sleep(arrival_time)
             await asyncio.sleep(arrival_time)
-            print("submitting dag=%d" % agent_id)
+            
+            # Use custom dag_name if provided, otherwise use agent_%d
+            if dag_names is not None:
+                dag_name = dag_names[agent_id]
+            else:
+                dag_name = "agent_%d" % agent_id
+            
+            print("submitting dag=%s" % dag_name)
             try:
-                await executor.submit_dag(dag, "agent_%d" % agent_id)
+                await executor.submit_dag(dag, dag_name)
             except Exception as e:
                 print(f"Error submitting DAG: {e}")
                 
@@ -513,6 +523,45 @@ def execute_workload_variable_interrupts(
                                  wait_for_all_done=wait_for_all_done))
 
 
+
+def execute_workload_claude_traces(
+    num_requests,
+    arrival_rate=0.5,
+    seed=42,
+    port=8000,
+    model="Qwen/Qwen2.5-Coder-32B-Instruct",
+    wait_for_all_done=False,
+    timeout=300,
+    claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude"
+):
+    """
+    Execute workload from Claude traces.
+    
+    Uses raw token IDs and actual tool execution patterns from Claude dataset.
+    """
+    # Generate workload
+    dags, dag_names, arrival_times = generate_claude_trace_workload(
+        num_requests=num_requests,
+        claude_dataset_dir=claude_dataset_dir,
+        arrival_rate=arrival_rate,
+        seed=seed
+    )
+    
+    if DEBUG:
+        return
+    
+    # Run with timeout
+    asyncio.run(run_with_timeout(
+        run_dags_with_arrival_times,
+        timeout=timeout,
+        dags=dags,
+        arrival_times=arrival_times,
+        dag_names=dag_names,  # Pass request IDs as dag names
+        port=port,
+        model=model,
+        wait_for_all_done=wait_for_all_done
+    ))
+
 def main():
 
     # requests1 = generate_variable_llm_toolcall_workload(
@@ -566,8 +615,10 @@ def main():
 
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    batch_sizes = [1, 2, 4, 8, 16]
+    rates = [0.1]
+    # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    batch_sizes = [64]
+    # batch_sizes = [1, 2, 4, 8, 16]
     # rates = [0.02]
     # rates = [0.06, 0.07, 0.08, 0.09]
 
@@ -593,7 +644,7 @@ def main():
     # rates = [0.04]
     # rates = [0.1]
     # t = 1200
-    t = 600
+    t = 100
     # enable_returning_queue = True
     enable_swap_budget = False
     swap_budget_type = "fixed"
@@ -604,13 +655,15 @@ def main():
     multi_tenant = False
     port = 8000
     max_num_seqs = 200
-    cuda_device = 4
+    cuda_device = '4,7'
     wait_for_all_done = False
-    max_num_batched_tokens = 2048
+    max_num_batched_tokens = 256
     timeout = t
     model = "Qwen/Qwen2.5-Coder-32B-Instruct"
     rope_scaling = '{"rope_type":"yarn","factor":7.0,"original_max_position_embeddings":32768}'
     max_model_len = 200000
+    tp_size = 2
+    pp_size = 1
 
     for rate in rates:
         num_events = int(rate * t)
@@ -621,13 +674,13 @@ def main():
         num_requests = len(arrival_times)
 
         
-        # uncomment this to use the single tenant workload
-        requests = generate_variable_llm_toolcall_workload(
-            num_requests=num_requests,
-            seed=42,
-            vary_interrupts=True,
-            num_interrupts=None
-        )
+        # # uncomment this to use the single tenant workload
+        # requests = generate_variable_llm_toolcall_workload(
+        #     num_requests=num_requests,
+        #     seed=42,
+        #     vary_interrupts=True,
+        #     num_interrupts=None
+        # )
 
         # uncomment this to use the multi tenant workload
         # requests = generate_variable_llm_toolcall_workload_multi_tenant(
@@ -652,7 +705,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-154-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-155-claude-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -661,39 +714,50 @@ def main():
         shutil.copy(__file__, os.path.join(abs_path, copied_script_name))
 
 
-        requests_meta = []
+        # requests_meta = []
 
-        for i, request in enumerate(requests):
-            req_size = len(request['context'].split()) if 'context' in request else None
-            if "interrupt_lens" in request:
-                num_interrupts = len(request['interrupt_lens'])
-                durations = list(request['interrupt_lens'])
-            else:
-                num_interrupts = request['num_interrupts']
-                durations = [request['interrupt_len']] * num_interrupts
+        # for i, request in enumerate(requests):
+        #     req_size = len(request['context'].split()) if 'context' in request else None
+        #     if "interrupt_lens" in request:
+        #         num_interrupts = len(request['interrupt_lens'])
+        #         durations = list(request['interrupt_lens'])
+        #     else:
+        #         num_interrupts = request['num_interrupts']
+        #         durations = [request['interrupt_len']] * num_interrupts
 
-            requests_meta.append({
-                'id': i,
-                'request_size': req_size,
-                'num_interrupts': num_interrupts,
-                'interrupt_durations': durations
-                })
+        #     requests_meta.append({
+        #         'id': i,
+        #         'request_size': req_size,
+        #         'num_interrupts': num_interrupts,
+        #         'interrupt_durations': durations
+        #         })
             
-        with open(os.path.join(abs_path, 'requests_meta.json'), 'w') as f:
-            json.dump({
-                "arrival_times": arrival_times,
-                "requests_meta": requests_meta
-            }, f, indent=2)
+        # with open(os.path.join(abs_path, 'requests_meta.json'), 'w') as f:
+        #     json.dump({
+        #         "arrival_times": arrival_times,
+        #         "requests_meta": requests_meta
+        #     }, f, indent=2)
 
-        exec_workload_fn = partial(execute_workload_variable_interrupts,
-                                   requests=requests,
-                                   arrival_times=arrival_times,
-                                   seed=42,
-                                   multi_tenant=multi_tenant,
-                                   port=port,
-                                   wait_for_all_done=wait_for_all_done,
-                                   model=model,
-                                   timeout=timeout)
+        # exec_workload_fn = partial(execute_workload_variable_interrupts,
+        #                            requests=requests,
+        #                            arrival_times=arrival_times,
+        #                            seed=42,
+        #                            multi_tenant=multi_tenant,
+        #                            port=port,
+        #                            wait_for_all_done=wait_for_all_done,
+        #                            model=model,
+        #                            timeout=timeout)
+
+        exec_workload_fn = partial(execute_workload_claude_traces,
+                                    num_requests=num_requests,
+                                    arrival_rate=rate,
+                                    seed=42,
+                                    port=port,
+                                    model=model,
+                                    wait_for_all_done=wait_for_all_done,
+                                    timeout=timeout
+        )
+
 
         exps = []
         # for cache_ttl_value in [1, 3, 5, 7, 9, 11, 13, 15]:
@@ -711,8 +775,8 @@ def main():
                             'model': model,
                             'rope_scaling': rope_scaling,
                             'max_model_len': max_model_len,
-                            'tp_size': 1, 
-                            'pp_size': 1, 
+                            'tp_size': tp_size, 
+                            'pp_size': pp_size, 
                             'swap_space': 1,
                             'evict_token_thresh': 99999999999,
                             'evict_token_count': 0,
@@ -751,8 +815,8 @@ def main():
                             'model': model,
                             'rope_scaling': rope_scaling,
                             'max_model_len': max_model_len,
-                            'tp_size': 1, 
-                            'pp_size': 1, 
+                            'tp_size': tp_size, 
+                            'pp_size': pp_size, 
                             'swap_space': 1,
                             'evict_token_thresh': 99999999999,
                             'evict_token_count': 0,
