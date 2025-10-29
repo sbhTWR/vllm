@@ -951,6 +951,8 @@ class Scheduler:
         # Sequence groups that are in the RETURNING state.
         self.returning: Deque[SequenceGroup] = deque()
 
+        self.active_agent_ids: Set[str] = set()
+
         # Sequence groups finished requests ids since last step iteration.
         # It lets the model know that any state associated with these requests
         # can and must be released after the current step.
@@ -1723,6 +1725,22 @@ class Scheduler:
         leftover_waiting_sequences: Deque[SequenceGroup] = deque()
         while self._passed_delay(time.time()) and waiting_queue:
             seq_group = waiting_queue[0]
+            
+            # MPL enforcement: Only apply to waiting queue (not returning queue)
+            if (self.scheduler_config.mpl is not None and 
+                seq_group.user_id is not None and 
+                seq_group.user_id not in self.active_agent_ids and
+                not seq_group.returning and
+                queue is self.waiting):  # <-- KEY: Only enforce for waiting queue
+                
+                # Count active agents
+                num_active_agents = len(self.active_agent_ids)
+                
+                if num_active_agents >= self.scheduler_config.mpl:
+                    # MPL limit reached, skip this new agent for now
+                    logger.info(f"[MPL] Blocking new agent {seq_group.user_id}, "
+                               f"active_agents={num_active_agents}, MPL={self.scheduler_config.mpl}")
+                    break  # Stop scheduling new agents from waiting queue
 
             waiting_seqs = seq_group.get_seqs(status=SequenceStatus.WAITING)
             assert len(waiting_seqs) == 1, (
@@ -1856,6 +1874,14 @@ class Scheduler:
                     
                     pass
             
+            # Add agent to active set on first scheduling (from either queue)
+            if (seq_group.user_id is not None and 
+                seq_group.user_id not in self.active_agent_ids):
+                self.active_agent_ids.add(seq_group.user_id)
+                queue_name = "returning" if queue is self.returning else "waiting"
+                logger.info(f"[MPL] New agent admitted from {queue_name} queue: {seq_group.user_id}, "
+                           f"active_agents={len(self.active_agent_ids)}")
+
             self._allocate_and_set_running(seq_group)
 
             if enable_chunking and self.scheduler_config.is_multi_step:
@@ -2701,6 +2727,18 @@ class Scheduler:
 
     def _free_finished_seq_group(self, seq_group: SequenceGroup) -> None:
         if seq_group.is_finished():
+            # MPL: Check if this is a leaf node (final LLM call for the agent)
+            # Leaf nodes have kv_reuse_expected_duration_s = 9999999
+            if (seq_group.user_id is not None and 
+                seq_group.user_id in self.active_agent_ids and
+                seq_group.hints is not None and
+                seq_group.hints.kv_reuse_expected_duration_s is not None and
+                seq_group.hints.kv_reuse_expected_duration_s >= 9999998):  # Use >= to handle floating point
+                
+                self.active_agent_ids.discard(seq_group.user_id)
+                logger.info(f"[MPL] Agent finished (leaf node): {seq_group.user_id}, "
+                        f"kv_reuse={seq_group.hints.kv_reuse_expected_duration_s}, "
+                        f"active_agents={len(self.active_agent_ids)}")
             # Free cross-attention block table, if it exists
             self._free_seq_group_cross_attn_blocks(seq_group)
 

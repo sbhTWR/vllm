@@ -73,7 +73,7 @@ class LLMCallNode(Node):
     def __init__(self, 
                  prompt_template: str = None,
                  prompt_token_ids: list[int] = None,  # NEW: Support raw tokens
-                 target_output_tokens: int = None,     # NEW: Control output length
+                 target_output_tokens: int = 128,     # NEW: Control output length
                  turn_idx: int = None,                 # NEW: For logging
                  llm_name: str = None, 
                  **kwargs):
@@ -116,7 +116,7 @@ class LLMCallNode(Node):
                     client.completions.create,
                     model=store.model,
                     prompt=self.prompt_token_ids,  # Use completions API with token IDs
-                    max_tokens=self.target_output_tokens or 128,
+                    max_tokens=self.target_output_tokens,
                     temperature=0,
                     user=json.dumps({
                         "id": store.agentid,
@@ -149,7 +149,7 @@ class LLMCallNode(Node):
                     messages=store.construct_openai_message(),
                     model=store.model,
                     temperature=0,
-                    max_tokens=128,
+                    max_tokens=self.target_output_tokens,
                     user=json.dumps({
                         "id": store.agentid,
                         "type": "append",

@@ -352,12 +352,13 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                                 num_lookahead_slots=num_lookahead_slots
         )
 
-        assert isinstance(self.block_allocator, CpuOffloadingBlockAllocator)
+        # assert isinstance(self.block_allocator, CpuOffloadingBlockAllocator)
         token_ids_chunked = chunk_list(token_ids, self.block_size)
         num_cached_blocks = self.block_allocator.num_blocks_cached_for_token_ids(
                                                 prev_block=None,
                                                 block_token_ids=token_ids_chunked,
                                             )
+        
 
         assert total_uncached_blocks_required >= num_cached_blocks
         # logger.info("[elasticswap] total=%d cached=%d" 
@@ -386,19 +387,39 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
 
+        # Remove the isinstance check and use the same logic for both allocators
         if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
+            logger.info("[elasticswap] using CpuOffloadingBlockAllocator with prefix caching support")
             num_required_blocks, num_cached_blocks = self.get_num_required_blocks_prefix_aware(
                 seq.get_token_ids(),
                 block_size=self.block_size,
                 num_lookahead_slots=num_lookahead_slots,
             )
-        else:
+        elif hasattr(self.block_allocator, 'num_blocks_cached_for_token_ids'):
+            # Calculate for CpuGpuBlockAllocator with prefix caching support
+            logger.info("[elasticswap] using CpuGpuBlockAllocator with prefix caching support")
             num_required_blocks = BlockTable.get_num_required_blocks(
                 seq.get_token_ids(),
                 block_size=self.block_size,
                 num_lookahead_slots=num_lookahead_slots,
             )
-
+            
+            token_ids_chunked = chunk_list(seq.get_token_ids(), self.block_size)
+            num_cached_blocks = self.block_allocator.num_blocks_cached_for_token_ids(
+                prev_block=None,
+                block_token_ids=token_ids_chunked,
+            )
+            
+            # Uncached blocks = total required - cached
+            # num_required_blocks = num_required_blocks - num_cached_blocks
+        else:
+            logger.info("[elasticswap] using fallback for allocators without prefix caching")
+            # Fallback for allocators without prefix caching
+            num_required_blocks = BlockTable.get_num_required_blocks(
+                seq.get_token_ids(),
+                block_size=self.block_size,
+                num_lookahead_slots=num_lookahead_slots,
+            )
             num_cached_blocks = 0
 
         if seq_group.is_encoder_decoder():
@@ -435,6 +456,15 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         # logger.info("[elasticswap] can_allocate [agent_id=%s]: num_required_blocks=%d num_free_gpu_blocks=%d check_ws=%s" 
                                 # % (seq_group.request_id, num_required_blocks, num_free_gpu_blocks, check_ws))
+
+
+        # set cached_input_tokens and total_input_tokens
+        seq_group.metrics.cached_input_tokens = num_cached_blocks * self.block_size
+
+        if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
+            seq_group.metrics.total_input_tokens = (num_required_blocks + num_cached_blocks) * self.block_size
+        else:
+            seq_group.metrics.total_input_tokens = num_required_blocks * self.block_size
 
         # Use watermark to avoid frequent cache eviction.
         if (self.num_total_gpu_blocks - num_required_blocks

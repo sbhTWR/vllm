@@ -191,6 +191,25 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 self.priority_queue,
                 (-reuse_expected_time, last_accessed, -num_hashed_tokens, block_id, content_hash))
         
+        elif self.swap_strategy == SwapStrategy.SWAP_RANDOM:
+            pass
+
+        elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
+            preserve = block_metadata.avg_tool_call_time if block_metadata.avg_tool_call_time is not None else 0.0
+            model_fwd_time_s = (block_metadata.latest_model_forward_time / 1000.0) if block_metadata.latest_model_forward_time is not None else 0.0
+            
+            # Get current num_blocks_in_hashless
+            num_blocks_in_hashless = 0
+            if hasattr(self._allocators[Device.GPU], '_hashless_allocator'):
+                num_blocks_in_hashless = self._allocators[Device.GPU]._hashless_allocator.get_num_free_blocks()
+            
+            discard = model_fwd_time_s * (1 + num_blocks_in_hashless)
+            priority = -(preserve - discard)
+            
+            heapq.heappush(
+                self.priority_queue,
+                (priority, last_accessed, -num_hashed_tokens, block_id, content_hash))
+        
         self._cleanup_cpu_swap_evictor_if_necessary()
     
     def remove_from_cpu_swap_evictor(self, block_id):
@@ -217,6 +236,9 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                     self.priority_queue,
                     (-reuse_expected_time, block.last_accessed, -block.num_hashed_tokens, 
                      block_id, block.content_hash))
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_RANDOM:
+                pass
 
         heapq.heapify(new_priority_queue)
         self.priority_queue = new_priority_queue
@@ -314,6 +336,19 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
                     _, last_accessed, _, block_id, content_hash = heapq.heappop(
                     self.priority_queue)
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_RANDOM:
+                import random 
+                if not self._cached_blocks_cpu:
+                    break
+                block_id = random.choice(list(self._cached_blocks_cpu.keys()))
+                block_metadata = self._cached_blocks_cpu[block_id]
+                last_accessed = block_metadata.last_accessed
+                content_hash = block_metadata.content_hash
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
+                priority, last_accessed, _, block_id, content_hash = heapq.heappop(
+                self.priority_queue)
 
             if (block_id in self._cached_blocks_cpu and 
                 last_accessed == self._cached_blocks_cpu[block_id].last_accessed):
@@ -385,7 +420,14 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             assert hints is not None, "hints must be provided with SWAP_HINTS"
             block.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
         
-        block.last_accessed_by_user = self.allocation_ctx.seq_group.user_id
+        elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
+            hints = self.allocation_ctx.seq_group.hints
+            assert hints is not None, "hints must be provided with SWAP_INFERCEPT"
+            if hints is not None:
+                block.avg_tool_call_time = hints.avg_tool_call_time
+                block.latest_model_forward_time = hints.latest_model_forward_time
+            
+            block.last_accessed_by_user = self.allocation_ctx.seq_group.user_id
 
         return block
     
@@ -682,6 +724,17 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 block_tracker_obj.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
                 # logger.info("[elasticswap] block_id=%d hint<kv_reuse_expected_duration_s>=%f" %
                 #             (block_id, block_tracker_obj.reuse_expected_time_s))
+                block_tracker_obj.last_accessed_by_user = user_id
+        
+        elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
+            hints = self.allocation_ctx.seq_group.hints
+            user_id = self.allocation_ctx.seq_group.user_id
+            block_tracker_obj = self._allocators[device]._block_tracker[block_id]
+            
+            if hints:
+                # Store metrics in block tracker
+                block_tracker_obj.avg_tool_call_time = hints.avg_tool_call_time
+                block_tracker_obj.latest_model_forward_time = hints.latest_model_forward_time
                 block_tracker_obj.last_accessed_by_user = user_id
 
         # print('block_id (%d) -> %s' % (block_id, self.allocation_ctx.seq_group.user_id))

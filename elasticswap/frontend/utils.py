@@ -161,6 +161,7 @@ def run_experiment(
     ws_control_deadline = 1.0,
     ws_size_fraction = 1.1,
     debug = False,
+    mpl = None,
     timeout = 120,
 ):
     retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
@@ -210,6 +211,11 @@ def run_experiment(
             "--ws-control-deadline", str(ws_control_deadline),
             "--ws-size-fraction", str(ws_size_fraction),
         ]
+
+    if mpl is not None:
+        vllm_args_list.append("--mpl")
+        vllm_args_list.append(str(mpl))
+
     if rope_scaling:
         vllm_args_list.append("--rope-scaling")
         vllm_args_list.append(str(rope_scaling))

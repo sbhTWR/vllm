@@ -14,6 +14,10 @@ from node import Node, LLMCallNode, ToolCallNode, WhileLoopNode
 
 DEBUG = os.environ.get('DEBUG', '0') == '1'
 
+# ADD THIS NEW VARIABLE
+PREFILL_ONLY = False
+MAX_OUTPUT_TOKENS = 1 if PREFILL_ONLY else 128  # 0 = prefill only, 128 = normal generation
+
 random.seed(42)
 np.random.seed(42)
 
@@ -322,7 +326,8 @@ def generate_variable_llm_toolcall_workload_multi_tenant(num_requests: int,
 def generate_dag_constant_interrupt_len(context, num_interrupts, interrupt_len):
     dag = []
     # context = lorem.words(request_size)
-    llm = LLMCallNode(context + " Please ignore the previous text and generate a long story.")
+    llm = LLMCallNode(context + " Please ignore the previous text and generate a long story.", 
+    target_output_tokens=MAX_OUTPUT_TOKENS)
     dag.append(llm)
     for _ in range(num_interrupts):
         tool = ToolCallNode(lambda text: f"Length of the above text was: {len(text)}. Please ignore the previous text and generate a long story.", 
@@ -331,7 +336,8 @@ def generate_dag_constant_interrupt_len(context, num_interrupts, interrupt_len):
 
         dag.append(tool)
 
-        llm = LLMCallNode(prompt_template="Response from tool: {tool_res}. Please ignore the previous text and generate a long story.")
+        llm = LLMCallNode(prompt_template="Response from tool: {tool_res}. Please ignore the previous text and generate a long story.",
+        target_output_tokens=MAX_OUTPUT_TOKENS)
         llm.add_input("tool_res", tool)
 
         dag.append(llm)
@@ -347,7 +353,8 @@ def generate_dag_constant_interrupt_len(context, num_interrupts, interrupt_len):
 def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens, is_batch_request=False):
     dag = []
     # context = lorem.words(request_size)
-    llm = LLMCallNode(context + " Please ignore the previous text and generate a long story.")
+    llm = LLMCallNode(context + " Please ignore the previous text and generate a long story.", 
+            target_output_tokens=MAX_OUTPUT_TOKENS)
     dag.append(llm)
     for i in range(num_interrupts):
         tool = ToolCallNode(lambda text: f"Length of the above text was: {len(text)}. Please ignore the previous text and generate a long story.", 
@@ -356,7 +363,8 @@ def generate_dag_variable_interrupt_len(context, num_interrupts, interrupt_lens,
 
         dag.append(tool)
 
-        llm = LLMCallNode(prompt_template="Response from tool: {tool_res}. Please ignore the previous text and generate a long story.")
+        llm = LLMCallNode(prompt_template="Response from tool: {tool_res}. Please ignore the previous text and generate a long story.",
+        target_output_tokens=MAX_OUTPUT_TOKENS)
         llm.add_input("tool_res", tool)
 
         dag.append(llm)
@@ -532,20 +540,49 @@ def execute_workload_claude_traces(
     model="Qwen/Qwen2.5-Coder-32B-Instruct",
     wait_for_all_done=False,
     timeout=300,
-    claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude"
+    claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude",
+    results_dir=None  # NEW: For saving metadata
 ):
     """
     Execute workload from Claude traces.
     
     Uses raw token IDs and actual tool execution patterns from Claude dataset.
+    
+    DETERMINISM GUARANTEE:
+    Multiple executions with the same seed will generate identical requests
+    (same token IDs, arrival times, and execution order). A verification hash
+    is printed to confirm determinism across runs.
     """
     # Generate workload
-    dags, dag_names, arrival_times = generate_claude_trace_workload(
+    dags, dag_names, arrival_times, requests_meta = generate_claude_trace_workload(
         num_requests=num_requests,
         claude_dataset_dir=claude_dataset_dir,
         arrival_rate=arrival_rate,
-        seed=seed
+        seed=seed,
+        prefill_only=PREFILL_ONLY
     )
+    
+    # Save request metadata if results_dir is provided
+    if results_dir is not None:
+        # Compute template diversity statistics
+        from collections import Counter
+        template_counts = Counter()
+        for meta in requests_meta:
+            template_counts[meta['template_id']] += 1
+        
+        meta_file = os.path.join(results_dir, 'requests_meta.json')
+        with open(meta_file, 'w') as f:
+            json.dump({
+                "arrival_times": arrival_times,
+                "requests_meta": requests_meta,
+                "template_diversity": {
+                    "total_templates_available": len(set(m['template_id'] for m in requests_meta)),
+                    "unique_templates_used": len(template_counts),
+                    "template_usage": dict(template_counts),
+                    "most_common": template_counts.most_common(10)
+                }
+            }, f, indent=2)
+        print(f"\n✓ Saved request metadata to {meta_file}")
     
     if DEBUG:
         return
@@ -557,6 +594,57 @@ def execute_workload_claude_traces(
         dags=dags,
         arrival_times=arrival_times,
         dag_names=dag_names,  # Pass request IDs as dag names
+        port=port,
+        model=model,
+        wait_for_all_done=wait_for_all_done
+    ))
+
+
+def execute_workload_claude_traces_precomputed(workload, 
+                                              port=8000,
+                                              model="Qwen/Qwen2.5-Coder-32B-Instruct",
+                                              wait_for_all_done=False,
+                                              timeout=120,
+                                              results_dir=None):
+    """
+    Execute workload with pre-generated DAGs to avoid construction overhead
+    """
+    dags = workload['dags']
+    dag_names = workload['dag_names']
+    arrival_times = workload['arrival_times']
+    requests_meta = workload['requests_meta']
+    
+    # Save request metadata if results_dir is provided
+    if results_dir is not None:
+        from collections import Counter
+        template_counts = Counter()
+        for meta in requests_meta:
+            template_counts[meta['template_id']] += 1
+        
+        meta_file = os.path.join(results_dir, 'requests_meta.json')
+        with open(meta_file, 'w') as f:
+            json.dump({
+                "arrival_times": arrival_times,
+                "requests_meta": requests_meta,
+                "template_diversity": {
+                    "total_templates_available": len(set(m['template_id'] for m in requests_meta)),
+                    "unique_templates_used": len(template_counts),
+                    "template_usage": dict(template_counts),
+                    "most_common": template_counts.most_common(10)
+                }
+            }, f, indent=2)
+        print(f"\n✓ Saved request metadata to {meta_file}")
+    
+    if DEBUG:
+        return
+    
+    # Run with timeout - DAGs are already constructed!
+    asyncio.run(run_with_timeout(
+        run_dags_with_arrival_times,
+        timeout=timeout,
+        dags=dags,
+        arrival_times=arrival_times,
+        dag_names=dag_names,
         port=port,
         model=model,
         wait_for_all_done=wait_for_all_done
@@ -615,8 +703,16 @@ def main():
 
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    rates = [0.1]
+    rates = [0.5]
+    # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.2, 0.3, 0.4, 0.5]
+    # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.1]
+    # rates = [0.01]
+    # rates = [0.1]
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.02]
+    # rates = [0.04]
     batch_sizes = [64]
     # batch_sizes = [1, 2, 4, 8, 16]
     # rates = [0.02]
@@ -635,7 +731,7 @@ def main():
     # rates = [0.5, 0.7, 0.9, 1.0]
     # rates = [0.6, 0.7, 0.8, 0.9, 1.0]
     # rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0,\
-    #      1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+        #  1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
     # rates = [0.5]
     # rates = [0.6, 0.7, 0.9, 1.0]
     # rates = [0.05]
@@ -643,8 +739,8 @@ def main():
     # rates = [0.2]
     # rates = [0.04]
     # rates = [0.1]
-    # t = 1200
-    t = 100
+    t = 600
+    # t = 100
     # enable_returning_queue = True
     enable_swap_budget = False
     swap_budget_type = "fixed"
@@ -653,17 +749,22 @@ def main():
     pinned_memory_frac = 0.0
     enable_cache_heirarchy = False
     multi_tenant = False
-    port = 8000
+    port = 8001
     max_num_seqs = 200
-    cuda_device = '4,7'
+    cuda_device = '6,7'
     wait_for_all_done = False
-    max_num_batched_tokens = 256
+    max_num_batched_tokens = 512
     timeout = t
     model = "Qwen/Qwen2.5-Coder-32B-Instruct"
     rope_scaling = '{"rope_type":"yarn","factor":7.0,"original_max_position_embeddings":32768}'
     max_model_len = 200000
     tp_size = 2
     pp_size = 1
+    enable_returning_queue = True
+
+
+    # workloads = {}
+    # for rate in rates:
 
     for rate in rates:
         num_events = int(rate * t)
@@ -672,6 +773,32 @@ def main():
         print(np.cumsum(exp_times))
         arrival_times = list(exp_times)
         num_requests = len(arrival_times)
+
+
+        num_events = int(rate * t)
+        exp_times = rng.exponential(scale=1/rate, size=num_events)
+        arrival_times = list(exp_times)
+        num_requests = len(arrival_times)
+        
+        print(f"Generating workload for rate={rate}, num_requests={num_requests}")
+        
+        # Generate workload once per rate
+        dags, dag_names, arrival_times, requests_meta = generate_claude_trace_workload(
+            num_requests=num_requests,
+            claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude",
+            arrival_rate=rate,
+            seed=42,
+            prefill_only=PREFILL_ONLY
+        )
+        
+        workload = {
+            'dags': dags,
+            'dag_names': dag_names,
+            'arrival_times': arrival_times,
+            'requests_meta': requests_meta,
+            'num_requests': num_requests
+        }
+
 
         
         # # uncomment this to use the single tenant workload
@@ -705,7 +832,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-155-claude-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-171-claude-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -713,7 +840,14 @@ def main():
         copied_script_name = "pipeline.py"
         shutil.copy(__file__, os.path.join(abs_path, copied_script_name))
 
-
+        exec_workload_fn = partial(execute_workload_claude_traces_precomputed,
+                            workload=workload,
+                            port=port,
+                            model=model,
+                            wait_for_all_done=wait_for_all_done,
+                            timeout=timeout,
+                            results_dir=abs_path
+                    )
         # requests_meta = []
 
         # for i, request in enumerate(requests):
@@ -748,15 +882,16 @@ def main():
         #                            model=model,
         #                            timeout=timeout)
 
-        exec_workload_fn = partial(execute_workload_claude_traces,
-                                    num_requests=num_requests,
-                                    arrival_rate=rate,
-                                    seed=42,
-                                    port=port,
-                                    model=model,
-                                    wait_for_all_done=wait_for_all_done,
-                                    timeout=timeout
-        )
+        # exec_workload_fn = partial(execute_workload_claude_traces,
+        #                             num_requests=num_requests,
+        #                             arrival_rate=rate,
+        #                             seed=42,
+        #                             port=port,
+        #                             model=model,
+        #                             wait_for_all_done=wait_for_all_done,
+        #                             timeout=timeout,
+        #                             results_dir=abs_path  # Save metadata to results directory
+        # )
 
 
         exps = []
@@ -765,86 +900,174 @@ def main():
             for pinned_memory_frac in [0.0]:
             # for pinned_memory_frac in [0.0]:
                 for batch_size in batch_sizes:
-                    exps.append(
-                        {
-                            "execute_workload_fn": exec_workload_fn,
-                            'results_path': results_path,
-                            'exp_name': exp_name + '-batch-%d' % (batch_size),
-                            'config_name': "swap-hint",
-                            'env': env,
-                            'model': model,
-                            'rope_scaling': rope_scaling,
-                            'max_model_len': max_model_len,
-                            'tp_size': tp_size, 
-                            'pp_size': pp_size, 
-                            'swap_space': 1,
-                            'evict_token_thresh': 99999999999,
-                            'evict_token_count': 0,
-                            'enable_chunked_prefill': True,
-                            'fr_policy': "default",
-                            'swap_strategy': "swap-hints",
-                            'block_allocator': "CpuOffloadingBlockAllocator",
-                            'port': port,
-                            'enable_returning_queue': True, 
-                            'returning_queue_sched_policy': "prio",
-                            'returning_queue_sort_freq': 1.0,
-                            'enable_swap_budget': False,
-                            'swap_budget_type': "fixed",
-                            'swap_budget_frac': 0.0,
-                            'enable_eager_evict': False,
-                            'cache_pin_ttl': cache_ttl_value,
-                            'pinned_memory_frac': pinned_memory_frac,
-                            'enable_cache_heirarchy': enable_cache_heirarchy,
-                            'max_num_seqs': batch_size,
-                            'max_num_batched_tokens': max_num_batched_tokens,
-                            'enable_ws_control': False,
-                            'ws_control_policy': "ws-hint",
-                            'ws_control_deadline': 6.0,
-                            'ws_size_fraction': 1.2,
-                            'debug': DEBUG,
-                            'timeout': timeout,
-                        }
-                    )
-                    exps.append(
-                        {
-                            "execute_workload_fn": exec_workload_fn,
-                            'results_path': results_path,
-                            'exp_name': exp_name + '-batch-%d' % (batch_size),
-                            'config_name': "swap-lru",
-                            'env': env,
-                            'model': model,
-                            'rope_scaling': rope_scaling,
-                            'max_model_len': max_model_len,
-                            'tp_size': tp_size, 
-                            'pp_size': pp_size, 
-                            'swap_space': 1,
-                            'evict_token_thresh': 99999999999,
-                            'evict_token_count': 0,
-                            'enable_chunked_prefill': True,
-                            'fr_policy': "default",
-                            'swap_strategy': "swap-lru",
-                            'block_allocator': "CpuGpuBlockAllocator",
-                            'port': port,
-                            'enable_returning_queue': True,
-                            'returning_queue_sched_policy': "prio",
-                            'returning_queue_sort_freq': 1.0,
-                            'enable_swap_budget': False,
-                            'swap_budget_type': "fixed",
-                            'swap_budget_frac': 0.0,
-                            'enable_eager_evict': False,
-                            'cache_pin_ttl': cache_ttl_value,
-                            'pinned_memory_frac': 0.0,
-                            'enable_cache_heirarchy': enable_cache_heirarchy,
-                            'max_num_seqs': batch_size,
-                            'max_num_batched_tokens': max_num_batched_tokens,
-                            'enable_ws_control': False,
-                            'ws_control_policy': "ws-deadline",
-                            'ws_control_deadline': 6.0,
-                            'ws_size_fraction': 1.2,
-                            'debug': DEBUG,
-                            'timeout': timeout,
-                        }
-                    )
+                    # for mpl in [1, 3, 5]:
+                    for mpl in [32, 64, 128, 256]:
+                        exps.append(
+                            {
+                                "execute_workload_fn": exec_workload_fn,
+                                'results_path': results_path,
+                                'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
+                                'config_name': "swap-hint",
+                                'env': env,
+                                'model': model,
+                                'rope_scaling': rope_scaling,
+                                'max_model_len': max_model_len,
+                                'tp_size': tp_size, 
+                                'pp_size': pp_size, 
+                                'swap_space': 1,
+                                'evict_token_thresh': 99999999999,
+                                'evict_token_count': 0,
+                                'enable_chunked_prefill': True,
+                                'fr_policy': "default",
+                                'swap_strategy': "swap-hints",
+                                'block_allocator': "CpuOffloadingBlockAllocator",
+                                'port': port,
+                                'enable_returning_queue': enable_returning_queue, 
+                                'returning_queue_sched_policy': "prio",
+                                'returning_queue_sort_freq': 1.0,
+                                'enable_swap_budget': False,
+                                'swap_budget_type': "fixed",
+                                'swap_budget_frac': 0.0,
+                                'enable_eager_evict': False,
+                                'cache_pin_ttl': cache_ttl_value,
+                                'pinned_memory_frac': pinned_memory_frac,
+                                'enable_cache_heirarchy': enable_cache_heirarchy,
+                                'max_num_seqs': batch_size,
+                                'max_num_batched_tokens': max_num_batched_tokens,
+                                'enable_ws_control': False,
+                                'ws_control_policy': "ws-hint",
+                                'ws_control_deadline': 6.0,
+                                'ws_size_fraction': 1.2,
+                                'mpl': mpl,
+                                'debug': DEBUG,
+                                'timeout': timeout,
+                            }
+                        )
+
+                        exps.append(
+                            {
+                                "execute_workload_fn": exec_workload_fn,
+                                'results_path': results_path,
+                                'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
+                                'config_name': "swap-infercept",
+                                'env': env,
+                                'model': model,
+                                'rope_scaling': rope_scaling,
+                                'max_model_len': max_model_len,
+                                'tp_size': tp_size, 
+                                'pp_size': pp_size, 
+                                'swap_space': 1,
+                                'evict_token_thresh': 99999999999,
+                                'evict_token_count': 0,
+                                'enable_chunked_prefill': True,
+                                'fr_policy': "default",
+                                'swap_strategy': "swap-infercept",
+                                'block_allocator': "CpuOffloadingBlockAllocator",
+                                'port': port,
+                                'enable_returning_queue': enable_returning_queue, 
+                                'returning_queue_sched_policy': "prio",
+                                'returning_queue_sort_freq': 1.0,
+                                'enable_swap_budget': False,
+                                'swap_budget_type': "fixed",
+                                'swap_budget_frac': 0.0,
+                                'enable_eager_evict': False,
+                                'cache_pin_ttl': cache_ttl_value,
+                                'pinned_memory_frac': pinned_memory_frac,
+                                'enable_cache_heirarchy': enable_cache_heirarchy,
+                                'max_num_seqs': batch_size,
+                                'max_num_batched_tokens': max_num_batched_tokens,
+                                'enable_ws_control': False,
+                                'ws_control_policy': "ws-hint",
+                                'ws_control_deadline': 6.0,
+                                'ws_size_fraction': 1.2,
+                                'mpl': mpl,
+                                'debug': DEBUG,
+                                'timeout': timeout,
+                            }
+                        )
+                        
+                        exps.append(
+                            {
+                                "execute_workload_fn": exec_workload_fn,
+                                'results_path': results_path,
+                                'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
+                                'config_name': "swap-lru",
+                                'env': env,
+                                'model': model,
+                                'rope_scaling': rope_scaling,
+                                'max_model_len': max_model_len,
+                                'tp_size': tp_size, 
+                                'pp_size': pp_size, 
+                                'swap_space': 1,
+                                'evict_token_thresh': 99999999999,
+                                'evict_token_count': 0,
+                                'enable_chunked_prefill': True,
+                                'fr_policy': "default",
+                                'swap_strategy': "swap-lru",
+                                'block_allocator': "CpuGpuBlockAllocator",
+                                'port': port,
+                                'enable_returning_queue': enable_returning_queue,
+                                'returning_queue_sched_policy': "prio",
+                                'returning_queue_sort_freq': 1.0,
+                                'enable_swap_budget': False,
+                                'swap_budget_type': "fixed",
+                                'swap_budget_frac': 0.0,
+                                'enable_eager_evict': False,
+                                'cache_pin_ttl': cache_ttl_value,
+                                'pinned_memory_frac': 0.0,
+                                'enable_cache_heirarchy': enable_cache_heirarchy,
+                                'max_num_seqs': batch_size,
+                                'max_num_batched_tokens': max_num_batched_tokens,
+                                'enable_ws_control': False,
+                                'ws_control_policy': "ws-deadline",
+                                'ws_control_deadline': 6.0,
+                                'ws_size_fraction': 1.2,
+                                'mpl': mpl,
+                                'debug': DEBUG,
+                                'timeout': timeout,
+                            }
+                        )
+                
+                        # exps.append(
+                        #     {
+                        #         "execute_workload_fn": exec_workload_fn,
+                        #         'results_path': results_path,
+                        #         'exp_name': exp_name + '-batch-%d' % (batch_size),
+                        #         'config_name': "swap-random",
+                        #         'env': env,
+                        #         'model': model,
+                        #         'rope_scaling': rope_scaling,
+                        #         'max_model_len': max_model_len,
+                        #         'tp_size': tp_size, 
+                        #         'pp_size': pp_size, 
+                        #         'swap_space': 1,
+                        #         'evict_token_thresh': 99999999999,
+                        #         'evict_token_count': 0,
+                        #         'enable_chunked_prefill': True,
+                        #         'fr_policy': "default",
+                        #         'swap_strategy': "swap-random",
+                        #         'block_allocator': "CpuOffloadingBlockAllocator",
+                        #         'port': port,
+                        #         'enable_returning_queue': enable_returning_queue, 
+                        #         'returning_queue_sched_policy': "prio",
+                        #         'returning_queue_sort_freq': 1.0,
+                        #         'enable_swap_budget': False,
+                        #         'swap_budget_type': "fixed",
+                        #         'swap_budget_frac': 0.0,
+                        #         'enable_eager_evict': False,
+                        #         'cache_pin_ttl': cache_ttl_value,
+                        #         'pinned_memory_frac': pinned_memory_frac,
+                        #         'enable_cache_heirarchy': enable_cache_heirarchy,
+                        #         'max_num_seqs': batch_size,
+                        #         'max_num_batched_tokens': max_num_batched_tokens,
+                        #         'enable_ws_control': False,
+                        #         'ws_control_policy': "ws-hint",
+                        #         'ws_control_deadline': 6.0,
+                        #         'ws_size_fraction': 1.2,
+                        #         'debug': DEBUG,
+                        #         'timeout': timeout,
+                        #     }
+                        # )
 
         for exp in exps:
             run_experiment(**exp)

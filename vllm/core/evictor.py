@@ -4,6 +4,7 @@ import enum
 import heapq
 from abc import ABC, abstractmethod
 import time
+import random
 from typing import Dict, List, Tuple
 from vllm.logger import init_logger
 
@@ -19,6 +20,8 @@ class SwapStrategy(enum.Enum):
     SWAP_LRU = enum.auto()
     PERSIST = enum.auto()
     SWAP_HINTS = enum.auto()
+    SWAP_RANDOM = enum.auto()
+    SWAP_INFERCEPT = enum.auto()
 
 class Evictor(ABC):
     """The Evictor subclasses should be used by the BlockAllocator class to
@@ -72,12 +75,17 @@ class BlockMetaData:
 
     def __init__(self, content_hash: int, num_hashed_tokens: int,
                  last_accessed: float, reuse_expected_time_s: float = None,
-                 last_accessed_by_user: str = None):
+                 last_accessed_by_user: str = None,
+                 avg_tool_call_time: float = None,
+                 latest_model_forward_time: float = None):
         self.content_hash = content_hash
         self.num_hashed_tokens = num_hashed_tokens
         self.last_accessed = last_accessed
         self.reuse_expected_time_s = reuse_expected_time_s
         self.last_accessed_by_user = last_accessed_by_user
+
+        self.avg_tool_call_time = avg_tool_call_time
+        self.latest_model_forward_time = latest_model_forward_time
 
 
 class FreeBlockSwapScheduler:
@@ -105,6 +113,13 @@ class FreeBlockSwapScheduler:
                         len(self.free_table), self.pinned_blocks_thresh, force_evict)
             logger.warning("[DEBUG] evict() returning None, None due to pinned blocks threshold")
             return None, None
+
+        if self.swap_strategy == SwapStrategy.SWAP_RANDOM:
+            block_id = random.choice(list(self.free_table.keys()))
+            block_metadata = self.free_table[block_id]
+            self.free_table.pop(block_id)
+            return block_id, block_metadata
+
 
         while self.priority_queue:
             # We do not remove outdated entries from the priority queue at the
@@ -163,7 +178,24 @@ class FreeBlockSwapScheduler:
                     block_metadata = self.free_table[block_id]
                     self.free_table.pop(block_id)
                     return block_id, block_metadata
-                
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
+                priority, last_accessed, num_hashed_tokens, block_id, content_hash = heapq.heappop(
+                    self.priority_queue
+                )
+                if (block_id in self.free_table and
+                        self.free_table[block_id].last_accessed == last_accessed):
+                    
+                    block_metadata = self.free_table[block_id]
+                    agent_id = block_metadata.last_accessed_by_user
+                    
+                    # logger.info(f"[preserve_discard_evict] Evicting block_id={block_id}, "
+                    #         f"priority={priority:.3f}, agent={agent_id}")
+                    
+                    self.free_table.pop(block_id)
+                    return block_id, block_metadata
+
+            
 
         raise ValueError("No usable cache memory left")
 
@@ -195,12 +227,18 @@ class FreeBlockSwapScheduler:
 
     def add(self, block_id: int, content_hash: int, num_hashed_tokens: int,
             last_accessed: float, reuse_expected_time_s: float = None, 
-            last_accessed_by_user: str = None):
+            last_accessed_by_user: str = None,
+            avg_tool_call_time: float = None,           # NEW
+            latest_model_forward_time: float = None,    # NEW
+            num_blocks_in_hashless: int = None):        # NEW
+
         self.free_table[block_id] = BlockMetaData(content_hash,
                                                   num_hashed_tokens,
                                                   last_accessed,
                                                   reuse_expected_time_s,
-                                                  last_accessed_by_user)
+                                                  last_accessed_by_user,
+                                                  avg_tool_call_time,
+                                                  latest_model_forward_time)
 
         # logger.info("[elasticswap] adding block_id=%d to swap scheduler" % block_id)
         # add to heap depending upon the strategy
@@ -225,6 +263,37 @@ class FreeBlockSwapScheduler:
                 self.priority_queue,
                 (-reuse_expected_time, last_accessed, -num_hashed_tokens, block_id, content_hash))
             self._cleanup_if_necessary()
+        
+        elif self.swap_strategy == SwapStrategy.SWAP_RANDOM:
+            pass
+        
+        elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
+
+            # preserve = Average_tool_call_time
+            preserve = avg_tool_call_time if avg_tool_call_time is not None else 0.0
+            
+            # discard = current_model_forwarding_time * (1 + num_blocks_in_hashless_allocator)
+            # Convert model_forward_time from milliseconds to seconds for consistency
+            model_fwd_time_s = (latest_model_forward_time / 1000.0) if latest_model_forward_time is not None else 0.0
+            num_hashless = num_blocks_in_hashless if num_blocks_in_hashless is not None else 0
+            discard = model_fwd_time_s * (1 + num_hashless)
+            
+            # Priority = preserve - discard
+            # Higher priority = more worth preserving = should evict LAST
+            # We want LOW priority blocks to evict FIRST, so negate it
+            priority = -(preserve - discard)
+            
+            # logger.info(f"[preserve_discard] block_id={block_id}: "
+            #         f"preserve={preserve:.3f}s (avg_tool_time), "
+            #         f"discard={discard:.3f}s (model_fwd={model_fwd_time_s:.3f}s * (1+{num_hashless})), "
+            #         f"priority={priority:.3f}, "
+            #         f"user={last_accessed_by_user}")
+            
+            heapq.heappush(
+                self.priority_queue,
+                (priority, last_accessed, -num_hashed_tokens, block_id, content_hash))
+            self._cleanup_if_necessary()
+
 
     def _cleanup_if_necessary(self):
         if len(self.priority_queue) > LRUEvictor.CLEANUP_THRESHOLD * len(
@@ -249,6 +318,21 @@ class FreeBlockSwapScheduler:
                 reuse_expected_time = block.last_accessed + reuse_expected_time_s
                 new_priority_queue.append(
                     (-reuse_expected_time, block.last_accessed, -block.num_hashed_tokens, block_id,
+                    block.content_hash))
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_RANDOM:
+                pass
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
+                preserve = block.avg_tool_call_time if block.avg_tool_call_time is not None else 0.0
+                model_fwd_time_s = (block.latest_model_forward_time / 1000.0) if block.latest_model_forward_time is not None else 0.0
+                # Note: num_blocks_in_hashless needs to be fetched dynamically or stored
+                # For cleanup, we can use a snapshot value or 0
+                discard = model_fwd_time_s  # Simplified for cleanup
+                priority = -(preserve - discard)
+                
+                new_priority_queue.append(
+                    (priority, block.last_accessed, -block.num_hashed_tokens, block_id,
                     block.content_hash))
 
         heapq.heapify(new_priority_queue)

@@ -10,6 +10,9 @@ from vllm.config import SwapBudgetType
 from vllm.platforms import current_platform
 from vllm.utils import Device
 from vllm.core.evictor import SwapStrategy
+from vllm.logger import init_logger
+
+logger = init_logger(__name__)
 
 class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
     """A block allocator that can allocate blocks on both CPU and GPU memory.
@@ -149,6 +152,33 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         """
         return self._allocators[device].allocate_mutable_block(
             prev_block, extra_hash=extra_hash)
+
+
+    def num_blocks_cached_for_token_ids(
+        self,
+        prev_block: Optional[Block],
+        block_token_ids: List[List[int]],
+        extra_hash: Optional[int] = None) -> int:
+        """
+        Count how many blocks are already cached for the given token IDs.
+        This only checks the GPU allocator since prefix caching is only on GPU.
+        """
+        # Prefix caching only supported on GPU
+        device = Device.GPU
+        
+        # Check if the GPU allocator supports prefix caching
+        if not hasattr(self._allocators[device], 'blocks_cached_for_token_ids'):
+            logger.info("[elasticswap] CpuGpuBlockAllocator does not support prefix caching")
+            return 0
+        
+        block_ids_cached = self._allocators[device].blocks_cached_for_token_ids(
+            prev_block=prev_block,
+            block_token_ids=block_token_ids,
+            extra_hash=extra_hash
+        )
+        
+        return len(block_ids_cached)
+
 
     def allocate_immutable_blocks(
             self,

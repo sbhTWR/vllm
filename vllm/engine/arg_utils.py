@@ -238,7 +238,9 @@ class EngineArgs:
     ws_control_policy: str = "ws-deadline"
     ws_control_deadline: float = 1.0
     ws_size_fraction: float = 1.1
-    
+
+
+    mpl: Optional[int] = None
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -479,7 +481,7 @@ class EngineArgs:
             '--swap-strategy',
             type=str,
             default='swap-hints',
-            choices=['persist', 'swap-lru', 'swap-hints'],
+            choices=['persist', 'swap-lru', 'swap-hints', 'swap-random'],
             help='.')
         
         # parser.add_argument(
@@ -1099,6 +1101,15 @@ class EngineArgs:
             type=float,
             default=1.1,
             help='.')
+        
+        parser.add_argument(
+            '--mpl',
+            type=int,
+            default=None,
+            help='Multi-Programming Level: Maximum number of concurrent agents. '
+                'If specified, limits how many agents can be active simultaneously. '
+                'New agents will queue until an active agent completes. '
+                'None (default) means no limit.')
 
         parser.add_argument(
             '--retrify-log-file',
@@ -1461,6 +1472,7 @@ class EngineArgs:
             ws_control_policy=self.ws_control_policy,
             ws_control_deadline=self.ws_control_deadline,
             ws_size_fraction=self.ws_size_fraction,
+            mpl=self.mpl,
             )
         lora_config = LoRAConfig(
             bias_enabled=self.enable_lora_bias,

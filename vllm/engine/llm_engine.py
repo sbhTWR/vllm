@@ -602,6 +602,41 @@ class LLMEngine:
             return None
 
         logger.info("[elasticswap] user_args=%s" % user_args)
+
+        # ============================================================
+        # Auto-populate hints from agent metrics if available
+        # ============================================================
+        if user_args and 'id' in user_args:
+            user_id = user_args['id']
+            
+            # If this is a returning agent with tracked metrics, populate hints
+            if user_id in self.active_agents:
+                agent = self.active_agents[user_id]
+                
+                # Initialize hints dict if it doesn't exist
+                if 'hints' not in user_args:
+                    user_args['hints'] = {}
+                elif user_args['hints'] is None:
+                    user_args['hints'] = {}
+                
+                # Populate with agent's running statistics
+                # Only override if not already provided by the caller
+                if 'avg_tool_call_time' not in user_args['hints']:
+                    if agent.num_tool_calls_observed > 0:
+                        user_args['hints']['avg_tool_call_time'] = agent.avg_tool_call_time
+                        logger.info(f"[hints] Auto-populated avg_tool_call_time={agent.avg_tool_call_time:.3f}s "
+                                f"for agent {user_id} (n={agent.num_tool_calls_observed})")
+                
+                if 'num_tool_calls_observed' not in user_args['hints']:
+                    user_args['hints']['num_tool_calls_observed'] = agent.num_tool_calls_observed
+                
+                if 'latest_model_forward_time' not in user_args['hints']:
+                    if agent.latest_model_forward_time is not None:
+                        user_args['hints']['latest_model_forward_time'] = agent.latest_model_forward_time
+                        logger.info(f"[hints] Auto-populated latest_model_forward_time={agent.latest_model_forward_time:.3f}ms "
+                                f"for agent {user_id}")
+        # ============================================================
+        
         self._validate_model_inputs(processed_inputs, lora_request)
         # Create the sequences.
         block_size = self.cache_config.block_size
@@ -680,13 +715,42 @@ class LLMEngine:
                 self.active_agents[user_id].finished = True
                 # assert self.active_agents[user_id].active_llm_calls == 0
             else:
-                self.active_agents[user_id].llm_calls[request_id] =\
-                    RetrifyAgentLLMCall(
-                        request_id=request_id,
-                        start_t=arrival_time,
-                        end_t=None
-                    )
+                # self.active_agents[user_id].llm_calls[request_id] =\
+                #     RetrifyAgentLLMCall(
+                #         request_id=request_id,
+                #         start_t=arrival_time,
+                #         end_t=None
+                #     )
                 
+                # self.active_agents[user_id].active_llm_calls += 1
+                    # NEW: Track tool call durations inferred from gaps
+
+                # NEW: Infer tool call duration from gap between LLM calls
+                agent = self.active_agents[user_id]
+                
+                # If this is not the first LLM call, calculate the gap
+                if agent.last_llm_end_time is not None:
+                    tool_call_duration = arrival_time - agent.last_llm_end_time
+                    
+                    # Only count positive gaps (ignore concurrent or overlapping calls)
+                    if tool_call_duration > 0:
+                        agent.tool_call_durations.append(tool_call_duration)
+                        
+                        # Optional: keep only recent N measurements for a moving average
+                        MAX_TOOL_CALL_HISTORY = 100
+                        if len(agent.tool_call_durations) > MAX_TOOL_CALL_HISTORY:
+                            agent.tool_call_durations.pop(0)
+                        
+                        logger.info(f"[tool_tracking] Agent {user_id}: inferred tool call duration = {tool_call_duration:.3f}s, "
+                                f"avg = {agent.avg_tool_call_time:.3f}s (n={agent.num_tool_calls_observed})")
+                
+                # Create new LLM call tracking
+                agent.llm_calls[request_id] = RetrifyAgentLLMCall(
+                    request_id=request_id,
+                    start_t=arrival_time,
+                    end_t=None
+                )
+
                 self.active_agents[user_id].active_llm_calls += 1
 
             for scheduler in self.scheduler:
@@ -1910,6 +1974,17 @@ class LLMEngine:
                     llmcall.model_forward_t_request = seq_group.metrics.model_forward_time
                     llmcall.model_exec_t_request = seq_group.metrics.model_execute_time * 1000
                     llmcall.sched_t_request = seq_group.metrics.scheduler_time
+
+                    llmcall.cached_input_tokens = seq_group.metrics.cached_input_tokens
+                    llmcall.total_input_tokens = seq_group.metrics.total_input_tokens
+
+                    # NEW: Update the last LLM end time for tool call tracking
+                    agent: RetrifyAgentMetrics = self.active_agents[seq_group.user_id]
+                    agent.last_llm_end_time = now
+                    agent.latest_model_forward_time = seq_group.metrics.model_forward_time
+
+                    logger.info(f"[agent_tracking] Agent {seq_group.user_id}: LLM call finished at {now:.3f}, "
+               f"model_forward_time={agent.latest_model_forward_time:.3f}ms")
 
                     assert agent.active_llm_calls > 0
                     agent.active_llm_calls -= 1

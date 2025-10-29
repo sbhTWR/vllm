@@ -231,6 +231,39 @@ class PrefixCachingBlockAllocator(BlockAllocator):
         assert block.content_hash is None
         return block
 
+
+    def blocks_cached_for_token_ids(
+            self,
+            prev_block: Optional[Block],
+            block_token_ids: List[List[int]],
+            extra_hash: Optional[int] = None) -> List[int]:
+        
+        blocks = []
+        block_ids_cached = []
+        num_cached_blocks = 0
+        for token_ids in block_token_ids:
+            prev_block = self._block_pool.init_block(prev_block=prev_block,
+                                                token_ids=token_ids,
+                                                block_size=self._block_size,
+                                                physical_block_id=None,
+                                                extra_hash=extra_hash)
+            
+            blocks.append(prev_block)
+            if prev_block.content_hash is not None:
+                cached_block_id = self._cached_blocks.get(prev_block.content_hash, None)
+                if cached_block_id is not None:
+                    block_ids_cached.append(cached_block_id)
+                    num_cached_blocks += 1
+                else:
+                    break
+            else:
+                break
+
+        for block in blocks:    
+            self._block_pool.free_block(block)
+
+        return block_ids_cached
+
     def _incr_refcount_cached_block(self, block: Block) -> None:
         # Set this block to be "computed" since it is pointing to a
         # cached block id (which was already computed)
@@ -846,11 +879,18 @@ class ElasticSwapBlockAllocator(BlockAllocator):
     #     self.current_swap_budget_blocks = num_blocks
 
     def add_to_swap_scheduler(self, block_id, block_metadata):
+        num_blocks_in_hashless = 0
+        if hasattr(self, '_hashless_allocator'):
+            num_blocks_in_hashless = self._hashless_allocator.get_num_free_blocks()
+
         self.swap_scheduler.add(
             block_id, block_metadata.content_hash, block_metadata.num_hashed_tokens,
             self._block_tracker[block_id].last_accessed,
             self._block_tracker[block_id].reuse_expected_time_s,
-            self._block_tracker[block_id].last_accessed_by_user
+            self._block_tracker[block_id].last_accessed_by_user,
+            avg_tool_call_time=self._block_tracker[block_id].avg_tool_call_time,            
+            latest_model_forward_time=self._block_tracker[block_id].latest_model_forward_time, 
+            num_blocks_in_hashless=num_blocks_in_hashless
         )
 
     def evict_n_from_swap_scheduler(self, n):
@@ -948,6 +988,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             block_token_ids: List[List[int]],
             extra_hash: Optional[int] = None) -> List[int]:
         
+
         blocks = []
         block_ids_cached = []
         num_cached_blocks = 0
@@ -1043,13 +1084,22 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         # No longer used
         assert block.content_hash in self._cached_blocks, "content_hash=%s" % block.content_hash
 
+
+        # Get num_blocks_in_hashless
+        num_blocks_in_hashless = 0
+        if hasattr(self, '_hashless_allocator'):
+            num_blocks_in_hashless = self._hashless_allocator.get_num_free_blocks()
+
         # print("gpu_block_id=%d freed" % block_id)
         # Add the cached block to the evictor
         # (This keeps the cached block around so it can be reused)
         self.swap_scheduler.add(block_id, block.content_hash, block.num_tokens_total,
                          self._block_tracker[block_id].last_accessed, 
                          self._block_tracker[block_id].reuse_expected_time_s,
-                         self._block_tracker[block_id].last_accessed_by_user)
+                         self._block_tracker[block_id].last_accessed_by_user,
+                        avg_tool_call_time=self._block_tracker[block_id].avg_tool_call_time,
+                        latest_model_forward_time=self._block_tracker[block_id].latest_model_forward_time,
+                        num_blocks_in_hashless=num_blocks_in_hashless)
 
         # Stop tracking the block
         self._untrack_block_id(block_id)

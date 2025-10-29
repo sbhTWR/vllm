@@ -38,6 +38,9 @@ class RetrifyAgentLLMCall:
     sched_t_request: float = 0.0
     queue_t_request: float = 0.0
 
+    cached_input_tokens: int = 0 
+    total_input_tokens: int = 0 
+
 @dataclass
 class RetrifyAgentMetrics:
     agent_id: str
@@ -46,6 +49,23 @@ class RetrifyAgentMetrics:
     end_t: float = 0.0
     finished: bool = False
     llm_calls: Dict[str, RetrifyAgentLLMCall] = field(default_factory=dict)
+
+        # NEW: Track tool call durations inferred from gaps
+    tool_call_durations: List[float] = field(default_factory=list)
+    last_llm_end_time: Optional[float] = None  # Track when last LLM call finished
+    latest_model_forward_time: Optional[float] = None
+    
+    @property
+    def avg_tool_call_time(self) -> float:
+        """Calculate running average of inferred tool call times"""
+        if not self.tool_call_durations:
+            return 0.0
+        return sum(self.tool_call_durations) / len(self.tool_call_durations)
+    
+    @property
+    def num_tool_calls_observed(self) -> int:
+        """Number of tool call gaps observed"""
+        return len(self.tool_call_durations)
 
 @dataclass
 class Stats:

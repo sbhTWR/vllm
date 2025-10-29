@@ -133,6 +133,9 @@ class RequestMetrics:
     swap_out_time: Optional[float] = None 
     copy_time: Optional[float] = None
 
+    cached_input_tokens: int = 0 
+    total_input_tokens: int = 0 
+
 
 class SequenceDataDelta(
         msgspec.Struct,
@@ -399,6 +402,9 @@ class SequenceGroupHints:
     # kv cache hints
     kv_reuse_expected_duration_s: float = None 
 
+    avg_tool_call_time: float = None           # Average tool call duration from agent
+    num_tool_calls_observed: int = None        # How many tool calls we've seen
+    latest_model_forward_time: float = None    # Most recent model forward time
 
 class Sequence:
     """Stores the data, status, and block information of a sequence.

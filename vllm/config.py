@@ -1126,7 +1126,7 @@ class CacheConfig:
                 f"supported. Got {self.block_allocator}.")
 
         if self.swap_strategy not in [
-                "persist", "swap-lru", "swap-hints"
+                "persist", "swap-lru", "swap-hints", "swap-random", "swap-infercept"
         ]:
             raise ValueError(
                 "Only persist and swap_all is "
@@ -1139,7 +1139,11 @@ class CacheConfig:
             self.swap_strategy = SwapStrategy.SWAP_LRU
         elif self.swap_strategy == "swap-hints":
             self.swap_strategy = SwapStrategy.SWAP_HINTS
-        
+        elif self.swap_strategy == "swap-random":
+            self.swap_strategy = SwapStrategy.SWAP_RANDOM
+        elif self.swap_strategy == "swap-infercept":
+            self.swap_strategy = SwapStrategy.SWAP_INFERCEPT
+
         if self.cache_pin_ttl == None:
             self.cache_pin_ttl = -1 
 
@@ -1577,6 +1581,8 @@ class SchedulerConfig:
     ws_control_policy: str = "ws-deadline"
     ws_control_deadline: float = 1.0
     ws_size_fraction: float = 1.1
+
+    mpl: Optional[int] = None
 
     def compute_hash(self) -> str:
         """
