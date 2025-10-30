@@ -25,6 +25,7 @@ from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceStatus, merge_seq_groups_recompute,
                            merge_seq_groups_persist)
 from vllm.utils import Device, PyObjectCache, get_current_time
+from vllm.core.prefix_priority_queue import PrefixPriorityQueue
 
 logger = init_logger(__name__)
 
@@ -935,9 +936,26 @@ class Scheduler:
             enable_eager_evict=self.scheduler_config.enable_eager_evict,
             )
 
+        self.waiting: Union[Deque[SequenceGroup], 'PrefixPriorityQueue']
+        
+        if self.scheduler_config.enable_prefix_priority_queue:
+            from vllm.core.prefix_priority_queue import PrefixPriorityQueue
+            self.waiting = PrefixPriorityQueue(
+                num_levels=self.scheduler_config.priority_queue_num_levels,
+                max_match_len=self.scheduler_config.priority_queue_max_match_len,
+                bucketing=self.scheduler_config.priority_queue_bucketing
+            )
+            logger.info(f"[PrefixPriorityQueue] Enabled with num_levels={self.scheduler_config.priority_queue_num_levels}, "
+                    f"max_match_len={self.scheduler_config.priority_queue_max_match_len}, "
+                    f"bucketing={self.scheduler_config.priority_queue_bucketing}")
+        else:
+            self.waiting: Deque[SequenceGroup] = deque()
+
+
+
         # Sequence groups in the WAITING state.
         # Contain new prefill or preempted requests.
-        self.waiting: Deque[SequenceGroup] = deque()
+        # self.waiting: Deque[SequenceGroup] = deque()
         # Sequence groups in the RUNNING state.
         # Contain decode requests.
         self.running: Deque[SequenceGroup] = deque()
@@ -1044,7 +1062,19 @@ class Scheduler:
             logger.info("[elasticswap] adding to returing userid=%s" % seq_group.user_id)
             self.returning.append(seq_group)
         else:
-            self.waiting.append(seq_group)
+            if self.scheduler_config.enable_prefix_priority_queue:
+                # Get prefix match length from block manager
+                match_blocks = self._get_num_cached_blocks(seq_group)
+                match_length = match_blocks * self.cache_config.block_size
+                
+                logger.info(f"[PrefixPriorityQueue] Adding seq_group {seq_group.request_id} "
+                        f"with match_length={match_length}")
+                
+                # Enqueue with priority based on match length
+                self.waiting.append(seq_group, match_length=match_length)
+            else:
+                # Standard FIFO queue
+                self.waiting.append(seq_group)
 
 
     def _get_num_cached_blocks(self, seq_group: SequenceGroup):

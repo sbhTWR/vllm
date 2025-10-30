@@ -242,6 +242,12 @@ class EngineArgs:
 
     mpl: Optional[int] = None
 
+    enable_prefix_priority_queue: bool = False
+    priority_queue_num_levels: int = 15
+    priority_queue_max_match_len: int = 200000
+    priority_queue_bucketing: str = "logarithmic"
+
+
     def __post_init__(self):
         if not self.tokenizer:
             self.tokenizer = self.model
@@ -1003,6 +1009,39 @@ class EngineArgs:
         
 
         parser.add_argument(
+            '--enable-prefix-priority-queue',
+            action=StoreBoolean,
+            default=False,
+            nargs="?",
+            const="True",
+            help='Enable prefix-based priority queue for waiting requests. '
+                'Requests with longer prefix matches get higher priority.')
+
+        parser.add_argument(
+            '--priority-queue-num-levels',
+            type=int,
+            default=EngineArgs.priority_queue_num_levels,
+            help='Number of priority levels in the prefix priority queue. '
+                'Recommended: 10-15 for wide range of prefix lengths.')
+
+        parser.add_argument(
+            '--priority-queue-max-match-len',
+            type=int,
+            default=EngineArgs.priority_queue_max_match_len,
+            help='Maximum expected prefix match length (in tokens). '
+                'Should match your max_model_len. Default: 200000')
+
+        parser.add_argument(
+            '--priority-queue-bucketing',
+            type=str,
+            default=EngineArgs.priority_queue_bucketing,
+            choices=['logarithmic', 'linear'],
+            help='Bucketing strategy for mapping match lengths to priority levels. '
+                '"logarithmic" (recommended) gives finer granularity to shorter matches, '
+                '"linear" uses equal-sized buckets.')
+
+
+        parser.add_argument(
             '--returning-queue-sched-policy',
             choices=["prio", "roundrobin"],
             default="prio",
@@ -1473,6 +1512,10 @@ class EngineArgs:
             ws_control_deadline=self.ws_control_deadline,
             ws_size_fraction=self.ws_size_fraction,
             mpl=self.mpl,
+            enable_prefix_priority_queue=self.enable_prefix_priority_queue,
+            priority_queue_num_levels=self.priority_queue_num_levels,
+            priority_queue_max_match_len=self.priority_queue_max_match_len,
+            priority_queue_bucketing=self.priority_queue_bucketing,
             )
         lora_config = LoRAConfig(
             bias_enabled=self.enable_lora_bias,

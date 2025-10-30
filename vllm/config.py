@@ -1584,6 +1584,11 @@ class SchedulerConfig:
 
     mpl: Optional[int] = None
 
+    enable_prefix_priority_queue: bool = False
+    priority_queue_num_levels: int = 15
+    priority_queue_max_match_len: int = 200000
+    priority_queue_bucketing: str = "logarithmic"
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,

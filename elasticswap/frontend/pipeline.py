@@ -702,12 +702,12 @@ def main():
     # rates = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.2, 0.3, 0.4, 0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
-    rates = [0.2]
+    # rates = [0.2]
     # rates = [0.01]
     # rates = [0.1]
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
@@ -739,7 +739,7 @@ def main():
     # rates = [0.2]
     # rates = [0.04]
     # rates = [0.1]
-    t = 120
+    t = 600
     # t = 100
     # enable_returning_queue = True
     enable_swap_budget = False
@@ -832,7 +832,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-171-claude-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-172-claude-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
