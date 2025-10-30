@@ -13,6 +13,7 @@ import numpy as np
 # from workload import workload0, workload1
 # from elasticswap.test_cyclic_workload_v2 import generate_workload
 import shutil
+import traceback
 
 rng = np.random.default_rng(seed=42)
 
@@ -164,111 +165,136 @@ def run_experiment(
     mpl = None,
     timeout = 120,
 ):
-    retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
-    exp_path = os.path.join(results_path, exp_name)
-    ensure_dir(exp_path)
-    vllm_log_file = os.path.join(exp_path, retrify_log_file)
+    try:
+        retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
+        exp_path = os.path.join(results_path, exp_name)
+        ensure_dir(exp_path)
+        vllm_log_file = os.path.join(exp_path, retrify_log_file)
 
-    output_log_file = vllm_log_file.split(".")[0] 
-    # kill anything on port 
-    # run_sync(['killport', str(port)])
+        output_log_file = vllm_log_file.split(".")[0] 
+        # kill anything on port 
+        # run_sync(['killport', str(port)])
 
-    if debug:
-        return
+        if debug:
+            return
 
-    vllm_args_list =         [
-            "python3", "-m", "vllm.entrypoints.openai.api_server",
-            "--model", model,
-            "--tensor-parallel-size", str(tp_size),
-            "--pipeline-parallel-size", str(pp_size),
-            "--fr-policy", fr_policy,
-            "--swap-strategy", swap_strategy,
-            "--block-allocator", block_allocator,
-            "--retrify-log-file", vllm_log_file,
-            "--enable-chunked-prefill", str(enable_chunked_prefill),
-            "--swap-space", str(swap_space),
-            "--evict-token-thresh", str(evict_token_thresh), 
-            "--evict-token-count", str(evict_token_count),
-            "--enable-returning-queue", str(enable_returning_queue),
-            "--returning-queue-sched-policy", str(returning_queue_sched_policy),
-            "--returning-queue-sort-freq", str(returning_queue_sort_freq),
-            "--enable-swap-budget", str(enable_swap_budget),
-            "--swap-budget-type", str(swap_budget_type),
-            "--swap-budget-frac", str(swap_budget_frac),
-            "--enable-eager-evict", str(enable_eager_evict),
-            "--cache-pin-ttl", str(cache_pin_ttl),
-            "--pinned-memory-frac", str(pinned_memory_frac),
-            "--preemption-mode", "recomputation",
-            "--max-num-seqs", str(max_num_seqs),
-            "--block-size", "128",
-            '--enable-prefix-caching',
-            '--enforce-eager',
-            '--enable-cache-heirarchy', str(enable_cache_heirarchy),
-            "--port", str(port),
-            "--max-num-batched-tokens", str(max_num_batched_tokens),
-            "--enable-ws-control", str(enable_ws_control),
-            "--ws-control-policy", str(ws_control_policy),
-            "--ws-control-deadline", str(ws_control_deadline),
-            "--ws-size-fraction", str(ws_size_fraction),
-        ]
+        vllm_args_list = [
+                "python3", "-u", "-m", "vllm.entrypoints.openai.api_server",
+                "--model", model,
+                "--tensor-parallel-size", str(tp_size),
+                "--pipeline-parallel-size", str(pp_size),
+                "--fr-policy", fr_policy,
+                "--swap-strategy", swap_strategy,
+                "--block-allocator", block_allocator,
+                "--retrify-log-file", vllm_log_file,
+                "--enable-chunked-prefill", str(enable_chunked_prefill),
+                "--swap-space", str(swap_space),
+                "--evict-token-thresh", str(evict_token_thresh), 
+                "--evict-token-count", str(evict_token_count),
+                "--enable-returning-queue", str(enable_returning_queue),
+                "--returning-queue-sched-policy", str(returning_queue_sched_policy),
+                "--returning-queue-sort-freq", str(returning_queue_sort_freq),
+                "--enable-swap-budget", str(enable_swap_budget),
+                "--swap-budget-type", str(swap_budget_type),
+                "--swap-budget-frac", str(swap_budget_frac),
+                "--enable-eager-evict", str(enable_eager_evict),
+                "--cache-pin-ttl", str(cache_pin_ttl),
+                "--pinned-memory-frac", str(pinned_memory_frac),
+                "--preemption-mode", "recomputation",
+                "--max-num-seqs", str(max_num_seqs),
+                "--block-size", "128",
+                '--enable-prefix-caching',
+                '--enforce-eager',
+                '--enable-cache-heirarchy', str(enable_cache_heirarchy),
+                "--port", str(port),
+                "--max-num-batched-tokens", str(max_num_batched_tokens),
+                "--enable-ws-control", str(enable_ws_control),
+                "--ws-control-policy", str(ws_control_policy),
+                "--ws-control-deadline", str(ws_control_deadline),
+                "--ws-size-fraction", str(ws_size_fraction),
+            ]
 
-    if mpl is not None:
-        vllm_args_list.append("--mpl")
-        vllm_args_list.append(str(mpl))
+        if mpl is not None:
+            vllm_args_list.append("--mpl")
+            vllm_args_list.append(str(mpl))
 
-    if rope_scaling:
-        vllm_args_list.append("--rope-scaling")
-        vllm_args_list.append(str(rope_scaling))
-    if max_model_len:
-        vllm_args_list.append("--max-model-len")
-        vllm_args_list.append(str(max_model_len))
+        if rope_scaling:
+            vllm_args_list.append("--rope-scaling")
+            vllm_args_list.append(str(rope_scaling))
+        if max_model_len:
+            vllm_args_list.append("--max-model-len")
+            vllm_args_list.append(str(max_model_len))
 
-    p, p_stdout, p_stderr, t_stdout, t_stderr = run_async(
-        vllm_args_list,
-        output_filename=output_log_file,
-        block_until_output="Uvicorn running",
-        timeout=900,
-        env=env
-    )
+        try:
+            p, p_stdout, p_stderr, t_stdout, t_stderr = run_async(
+                vllm_args_list,
+                output_filename=output_log_file,
+                block_until_output="Uvicorn running",
+                timeout=900,
+                env=env
+            )
+        except Exception as e:
+            print(f"Error starting vLLM server: {e}")
+            traceback.print_exc()
+            raise
 
-    t_stdout_loop = Thread(target=p_stdout.flush_to_file_loop, args=())
-    t_stdout_loop.daemon = True # thread dies with the program
-    t_stdout_loop.start()
+        t_stdout_loop = Thread(target=p_stdout.flush_to_file_loop, args=())
+        t_stdout_loop.daemon = True # thread dies with the program
+        t_stdout_loop.start()
 
-    t_stderr_loop = Thread(target=p_stdout.flush_to_file_loop, args=())
-    t_stderr_loop.daemon = True # thread dies with the program
-    t_stderr_loop.start()
-    print("Pipeline is ready")
-    
-    """
-    execute workloads
-    """
-    def run_workload_in_subprocess():
-        execute_workload_fn(port=port)
-    
-    print('Launching experiment with timeout %d' % timeout)
-    process = multiprocessing.Process(target=run_workload_in_subprocess)
-    process.start()
-    process.join(timeout=timeout)
+        t_stderr_loop = Thread(target=p_stdout.flush_to_file_loop, args=())
+        t_stderr_loop.daemon = True # thread dies with the program
+        t_stderr_loop.start()
+        print("Pipeline is ready")
+        
+        """
+        execute workloads
+        """
+        def run_workload_in_subprocess():
+            try:
+                execute_workload_fn(port=port)
+            except Exception as e:
+                print(f"Error in workload execution: {e}")
+                traceback.print_exc()
+                raise
+        
+        print('Launching experiment with timeout %d' % timeout)
+        process = multiprocessing.Process(target=run_workload_in_subprocess)
+        process.start()
+        process.join(timeout=timeout)
 
-    if process.is_alive():
-        print("Workload process is hanging, force killing...")
-        process.terminate()
-        process.join(timeout=5)
         if process.is_alive():
-            print("Process won't terminate, using SIGKILL...")
-            process.kill()
-            process.join()
+            print("Workload process is hanging, force killing...")
+            process.terminate()
+            process.join(timeout=5)
+            if process.is_alive():
+                print("Process won't terminate, using SIGKILL...")
+                process.kill()
+                process.join()
 
-    print('Done executing workloads, waiting for 60 seconds')
-    time.sleep(60)
-    
+        print('Done executing workloads, waiting for 60 seconds')
+        time.sleep(60)
+        
 
-    p_stdout.terminate()
-    p_stderr.terminate()
-    p.terminate()
-    p.wait()
-    print("Pipeline is done")
+        p_stdout.terminate()
+        p_stderr.terminate()
+        p.terminate()
+        p.wait()
+        print("Pipeline is done")
+    except Exception as e:
+        print(f"Fatal error in run_experiment: {e}")
+        traceback.print_exc()
+        raise
+    finally:
+        # Ensure cleanup happens even if there's an error
+        try:
+            p_stdout.terminate()
+            p_stderr.terminate()
+            p.terminate()
+            p.wait()
+        except:
+            pass
+        print("Pipeline cleanup complete")
 
 # def execute_workload(port=8000):
 #     threads = []

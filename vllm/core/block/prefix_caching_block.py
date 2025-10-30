@@ -30,7 +30,8 @@ logger = init_logger(__name__)
 class BlockTracker:
     """Used to track the status of a block inside the prefix caching allocator
     """
-    __slots__ = ("active", "last_accessed", "computed", "reuse_expected_time_s", "last_accessed_by_user")
+    __slots__ = ("active", "last_accessed", "computed", "reuse_expected_time_s", 
+                    "last_accessed_by_user", "avg_tool_call_time", "latest_model_forward_time")
 
     def reset(self):
         self.last_accessed: float = _DEFAULT_LAST_ACCESSED_TIME
@@ -40,6 +41,8 @@ class BlockTracker:
         self.active: bool = False
         self.reuse_expected_time_s: float = None
         self.last_accessed_by_user: str = None
+        self.avg_tool_call_time: float = None
+        self.latest_model_forward_time: float = None
         self.reset()
 
     def enable(self):

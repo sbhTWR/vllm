@@ -703,11 +703,11 @@ def main():
 
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    rates = [0.5]
+    # rates = [0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.2, 0.3, 0.4, 0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
-    # rates = [0.1]
+    rates = [0.2]
     # rates = [0.01]
     # rates = [0.1]
     # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
@@ -739,7 +739,7 @@ def main():
     # rates = [0.2]
     # rates = [0.04]
     # rates = [0.1]
-    t = 600
+    t = 120
     # t = 100
     # enable_returning_queue = True
     enable_swap_budget = False
@@ -900,49 +900,49 @@ def main():
             for pinned_memory_frac in [0.0]:
             # for pinned_memory_frac in [0.0]:
                 for batch_size in batch_sizes:
-                    # for mpl in [1, 3, 5]:
-                    for mpl in [32, 64, 128, 256]:
-                        exps.append(
-                            {
-                                "execute_workload_fn": exec_workload_fn,
-                                'results_path': results_path,
-                                'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
-                                'config_name': "swap-hint",
-                                'env': env,
-                                'model': model,
-                                'rope_scaling': rope_scaling,
-                                'max_model_len': max_model_len,
-                                'tp_size': tp_size, 
-                                'pp_size': pp_size, 
-                                'swap_space': 1,
-                                'evict_token_thresh': 99999999999,
-                                'evict_token_count': 0,
-                                'enable_chunked_prefill': True,
-                                'fr_policy': "default",
-                                'swap_strategy': "swap-hints",
-                                'block_allocator': "CpuOffloadingBlockAllocator",
-                                'port': port,
-                                'enable_returning_queue': enable_returning_queue, 
-                                'returning_queue_sched_policy': "prio",
-                                'returning_queue_sort_freq': 1.0,
-                                'enable_swap_budget': False,
-                                'swap_budget_type': "fixed",
-                                'swap_budget_frac': 0.0,
-                                'enable_eager_evict': False,
-                                'cache_pin_ttl': cache_ttl_value,
-                                'pinned_memory_frac': pinned_memory_frac,
-                                'enable_cache_heirarchy': enable_cache_heirarchy,
-                                'max_num_seqs': batch_size,
-                                'max_num_batched_tokens': max_num_batched_tokens,
-                                'enable_ws_control': False,
-                                'ws_control_policy': "ws-hint",
-                                'ws_control_deadline': 6.0,
-                                'ws_size_fraction': 1.2,
-                                'mpl': mpl,
-                                'debug': DEBUG,
-                                'timeout': timeout,
-                            }
-                        )
+                    for mpl in [None]:
+                    # for mpl in [32, 64, 128, 256]:
+                        # exps.append(
+                        #     {
+                        #         "execute_workload_fn": exec_workload_fn,
+                        #         'results_path': results_path,
+                        #         'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
+                        #         'config_name': "swap-hint",
+                        #         'env': env,
+                        #         'model': model,
+                        #         'rope_scaling': rope_scaling,
+                        #         'max_model_len': max_model_len,
+                        #         'tp_size': tp_size, 
+                        #         'pp_size': pp_size, 
+                        #         'swap_space': 1,
+                        #         'evict_token_thresh': 99999999999,
+                        #         'evict_token_count': 0,
+                        #         'enable_chunked_prefill': True,
+                        #         'fr_policy': "default",
+                        #         'swap_strategy': "swap-hints",
+                        #         'block_allocator': "CpuOffloadingBlockAllocator",
+                        #         'port': port,
+                        #         'enable_returning_queue': enable_returning_queue, 
+                        #         'returning_queue_sched_policy': "prio",
+                        #         'returning_queue_sort_freq': 1.0,
+                        #         'enable_swap_budget': False,
+                        #         'swap_budget_type': "fixed",
+                        #         'swap_budget_frac': 0.0,
+                        #         'enable_eager_evict': False,
+                        #         'cache_pin_ttl': cache_ttl_value,
+                        #         'pinned_memory_frac': pinned_memory_frac,
+                        #         'enable_cache_heirarchy': enable_cache_heirarchy,
+                        #         'max_num_seqs': batch_size,
+                        #         'max_num_batched_tokens': max_num_batched_tokens,
+                        #         'enable_ws_control': False,
+                        #         'ws_control_policy': "ws-hint",
+                        #         'ws_control_deadline': 6.0,
+                        #         'ws_size_fraction': 1.2,
+                        #         'mpl': mpl,
+                        #         'debug': DEBUG,
+                        #         'timeout': timeout,
+                        #     }
+                        # )
 
                         exps.append(
                             {
@@ -986,47 +986,47 @@ def main():
                             }
                         )
                         
-                        exps.append(
-                            {
-                                "execute_workload_fn": exec_workload_fn,
-                                'results_path': results_path,
-                                'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
-                                'config_name': "swap-lru",
-                                'env': env,
-                                'model': model,
-                                'rope_scaling': rope_scaling,
-                                'max_model_len': max_model_len,
-                                'tp_size': tp_size, 
-                                'pp_size': pp_size, 
-                                'swap_space': 1,
-                                'evict_token_thresh': 99999999999,
-                                'evict_token_count': 0,
-                                'enable_chunked_prefill': True,
-                                'fr_policy': "default",
-                                'swap_strategy': "swap-lru",
-                                'block_allocator': "CpuGpuBlockAllocator",
-                                'port': port,
-                                'enable_returning_queue': enable_returning_queue,
-                                'returning_queue_sched_policy': "prio",
-                                'returning_queue_sort_freq': 1.0,
-                                'enable_swap_budget': False,
-                                'swap_budget_type': "fixed",
-                                'swap_budget_frac': 0.0,
-                                'enable_eager_evict': False,
-                                'cache_pin_ttl': cache_ttl_value,
-                                'pinned_memory_frac': 0.0,
-                                'enable_cache_heirarchy': enable_cache_heirarchy,
-                                'max_num_seqs': batch_size,
-                                'max_num_batched_tokens': max_num_batched_tokens,
-                                'enable_ws_control': False,
-                                'ws_control_policy': "ws-deadline",
-                                'ws_control_deadline': 6.0,
-                                'ws_size_fraction': 1.2,
-                                'mpl': mpl,
-                                'debug': DEBUG,
-                                'timeout': timeout,
-                            }
-                        )
+                        # exps.append(
+                        #     {
+                        #         "execute_workload_fn": exec_workload_fn,
+                        #         'results_path': results_path,
+                        #         'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
+                        #         'config_name': "swap-lru",
+                        #         'env': env,
+                        #         'model': model,
+                        #         'rope_scaling': rope_scaling,
+                        #         'max_model_len': max_model_len,
+                        #         'tp_size': tp_size, 
+                        #         'pp_size': pp_size, 
+                        #         'swap_space': 1,
+                        #         'evict_token_thresh': 99999999999,
+                        #         'evict_token_count': 0,
+                        #         'enable_chunked_prefill': True,
+                        #         'fr_policy': "default",
+                        #         'swap_strategy': "swap-lru",
+                        #         'block_allocator': "CpuGpuBlockAllocator",
+                        #         'port': port,
+                        #         'enable_returning_queue': enable_returning_queue,
+                        #         'returning_queue_sched_policy': "prio",
+                        #         'returning_queue_sort_freq': 1.0,
+                        #         'enable_swap_budget': False,
+                        #         'swap_budget_type': "fixed",
+                        #         'swap_budget_frac': 0.0,
+                        #         'enable_eager_evict': False,
+                        #         'cache_pin_ttl': cache_ttl_value,
+                        #         'pinned_memory_frac': 0.0,
+                        #         'enable_cache_heirarchy': enable_cache_heirarchy,
+                        #         'max_num_seqs': batch_size,
+                        #         'max_num_batched_tokens': max_num_batched_tokens,
+                        #         'enable_ws_control': False,
+                        #         'ws_control_policy': "ws-deadline",
+                        #         'ws_control_deadline': 6.0,
+                        #         'ws_size_fraction': 1.2,
+                        #         'mpl': mpl,
+                        #         'debug': DEBUG,
+                        #         'timeout': timeout,
+                        #     }
+                        # )
                 
                         # exps.append(
                         #     {

@@ -12,6 +12,7 @@ import numpy as np
 from workload import workload0, workload1
 from elasticswap.test_cyclic_workload_v2 import generate_workload
 import shutil
+import traceback
 
 rng = np.random.default_rng(seed=42)
 
