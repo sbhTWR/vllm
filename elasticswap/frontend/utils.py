@@ -163,6 +163,12 @@ def run_experiment(
     ws_size_fraction = 1.1,
     debug = False,
     mpl = None,
+
+    enable_prefix_priority_queue = False,
+    priority_queue_num_levels = 15,
+    priority_queue_max_match_len = 200000,
+    priority_queue_bucketing = "logarithmic",
+
     timeout = 120,
 ):
     try:
@@ -198,6 +204,12 @@ def run_experiment(
                 "--swap-budget-type", str(swap_budget_type),
                 "--swap-budget-frac", str(swap_budget_frac),
                 "--enable-eager-evict", str(enable_eager_evict),
+
+                "--enable-prefix-priority-queue", str(enable_prefix_priority_queue),
+                "--priority-queue-num-levels", str(priority_queue_num_levels),
+                "--priority-queue-max-match-len", str(priority_queue_max_match_len),
+                "--priority-queue-bucketing", str(priority_queue_bucketing),
+
                 "--cache-pin-ttl", str(cache_pin_ttl),
                 "--pinned-memory-frac", str(pinned_memory_frac),
                 "--preemption-mode", "recomputation",

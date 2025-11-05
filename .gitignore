@@ -39,6 +39,7 @@ elasticswap/results/
 elasticswap/frontend/nohup.out
 elasticswap/nohup.out
 elasticswap/toolcall_dataset_claude/
+elasticswap/toolcall_dataset_claude_annotated
 .cache/
 # PyInstaller
 #  Usually these files are written by a python script from a template

@@ -1,0 +1,1233 @@
+====================================================================================================
+EXTRACTED TRACE TEMPLATES - DETAILED EXAMPLES
+====================================================================================================
+
+This file shows example traces extracted from annotated Claude tool call dataset.
+Each trace is split into 10-minute windows from the first LLM call.
+Model predictions (persist/evict/undecided) are included for each tool execution.
+
+====================================================================================================
+
+
+####################################################################################################
+EXAMPLE: SHORT_TRACE
+####################################################################################################
+
+Template ID:      4a4e0f4f-1
+Session ID:       4a4e0f4f-343c-4545-beeb-ee884d03560c
+Number of Turns:  5
+Total Tools:      3
+Final Context:    33,454 tokens
+
+----------------------------------------------------------------------------------------------------
+TURN-BY-TURN BREAKDOWN
+----------------------------------------------------------------------------------------------------
+
+┌─ TURN 0 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       31,426  (reused from previous context)
+│    New Input Tokens:           376  (user input + tool results)
+│    Total Input Tokens:      31,802
+│    Output Tokens:              239  (model generates this)
+│
+│    Context Evolution:     Fresh conversation start
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:          43.23s  (sum of all tools)
+│    Wall-clock Time:          43.23s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Edit                               
+│           Duration:         43.234s
+│           Prediction:     ❓ undecided   [persist:0.34 undecided:0.42 evict:0.24]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 1 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       31,798  (reused from previous context)
+│    New Input Tokens:           519  (user input + tool results)
+│    Total Input Tokens:      32,317
+│    Output Tokens:              302  (model generates this)
+│
+│    Context Evolution:     31,798 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.03s  (sum of all tools)
+│    Wall-clock Time:           0.03s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Edit                               
+│           Duration:          0.034s
+│           Prediction:     ❓ undecided   [persist:0.35 undecided:0.39 evict:0.26]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 2 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       32,311  (reused from previous context)
+│    New Input Tokens:           622  (user input + tool results)
+│    Total Input Tokens:      32,933
+│    Output Tokens:                1  (model generates this)
+│
+│    Context Evolution:     32,311 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: None (final turn or error)
+│
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 3 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       32,928  (reused from previous context)
+│    New Input Tokens:           137  (user input + tool results)
+│    Total Input Tokens:      33,065
+│    Output Tokens:                4  (model generates this)
+│
+│    Context Evolution:     32,928 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.05s  (sum of all tools)
+│    Wall-clock Time:           0.05s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Edit                               
+│           Duration:          0.049s
+│           Prediction:     ✅ persist     [persist:0.42 undecided:0.36 evict:0.23]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 4 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       33,063  (reused from previous context)
+│    New Input Tokens:           391  (user input + tool results)
+│    Total Input Tokens:      33,454
+│    Output Tokens:                1  (model generates this)
+│
+│    Context Evolution:     33,063 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: None (final turn or error)
+│
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+====================================================================================================
+TRACE SUMMARY
+====================================================================================================
+Total Cache Reads:           161,526 tokens  (reused across turns)
+Total New Input:               2,045 tokens  (fresh user/tool input)
+Total Output Generated:          547 tokens
+
+Tool Execution Stats:
+  Total Tools:            3
+  Min Duration:                0.034s
+  Max Duration:               43.234s
+  Avg Duration:               14.439s
+
+Model Predictions:
+  persist   :              1 ( 33.3%)
+  evict     :              0 (  0.0%)
+  undecided :              2 ( 66.7%)
+
+
+
+####################################################################################################
+EXAMPLE: MEDIUM_TRACE_MANY_TOOLS
+####################################################################################################
+
+Template ID:      93413833-2
+Session ID:       93413833-e933-4e63-bcb1-1899c754dc64
+Number of Turns:  15
+Total Tools:      24
+Final Context:    50,261 tokens
+
+----------------------------------------------------------------------------------------------------
+TURN-BY-TURN BREAKDOWN
+----------------------------------------------------------------------------------------------------
+
+┌─ TURN 0 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:        5,432  (reused from previous context)
+│    New Input Tokens:        31,750  (user input + tool results)
+│    Total Input Tokens:      37,182
+│    Output Tokens:                8  (model generates this)
+│
+│    Context Evolution:     Fresh conversation start
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           4.78s  (sum of all tools)
+│    Wall-clock Time:           4.78s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          4.779s
+│           Prediction:     ✅ persist     [persist:0.38 undecided:0.38 evict:0.24]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 1 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       37,170  (reused from previous context)
+│    New Input Tokens:           250  (user input + tool results)
+│    Total Input Tokens:      37,420
+│    Output Tokens:                9  (model generates this)
+│
+│    Context Evolution:     37,170 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:           0.31s  (sum of all tools)
+│    Wall-clock Time:           0.21s  (accounting for parallelism)
+│    Overlap Savings:           32.8%
+│
+│    Tool  1: Bash                               
+│           Duration:          0.211s
+│           Prediction:     ✅ persist     [persist:0.40 undecided:0.26 evict:0.35]
+│
+│    Tool  2: Bash                               
+│           Duration:          0.103s
+│           Prediction:     ❓ undecided   [persist:0.34 undecided:0.37 evict:0.29]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 2 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       37,409  (reused from previous context)
+│    New Input Tokens:         2,467  (user input + tool results)
+│    Total Input Tokens:      39,876
+│    Output Tokens:               10  (model generates this)
+│
+│    Context Evolution:     37,409 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:          20.39s  (sum of all tools)
+│    Wall-clock Time:          11.81s  (accounting for parallelism)
+│    Overlap Savings:           42.1%
+│
+│    Tool  1: Bash                               
+│           Duration:         11.776s
+│           Prediction:     ❓ undecided   [persist:0.26 undecided:0.53 evict:0.21]
+│
+│    Tool  2: Bash                               
+│           Duration:          8.611s
+│           Prediction:     ❓ undecided   [persist:0.27 undecided:0.48 evict:0.24]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 3 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       16,663  (reused from previous context)
+│    New Input Tokens:        22,798  (user input + tool results)
+│    Total Input Tokens:      39,461
+│    Output Tokens:                6  (model generates this)
+│
+│    Context Evolution:     16,663 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: None (final turn or error)
+│
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 4 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       39,451  (reused from previous context)
+│    New Input Tokens:           272  (user input + tool results)
+│    Total Input Tokens:      39,723
+│    Output Tokens:                7  (model generates this)
+│
+│    Context Evolution:     39,451 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:           5.23s  (sum of all tools)
+│    Wall-clock Time:           5.10s  (accounting for parallelism)
+│    Overlap Savings:            2.5%
+│
+│    Tool  1: Bash                               
+│           Duration:          1.714s
+│           Prediction:     ✅ persist     [persist:0.34 undecided:0.32 evict:0.34]
+│
+│    Tool  2: Bash                               
+│           Duration:          3.521s
+│           Prediction:     ❓ undecided   [persist:0.33 undecided:0.41 evict:0.26]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 5 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       39,713  (reused from previous context)
+│    New Input Tokens:           747  (user input + tool results)
+│    Total Input Tokens:      40,460
+│    Output Tokens:                2  (model generates this)
+│
+│    Context Evolution:     39,713 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:           4.08s  (sum of all tools)
+│    Wall-clock Time:           3.98s  (accounting for parallelism)
+│    Overlap Savings:            2.4%
+│
+│    Tool  1: Bash                               
+│           Duration:          0.398s
+│           Prediction:     ❓ undecided   [persist:0.35 undecided:0.41 evict:0.24]
+│
+│    Tool  2: Bash                               
+│           Duration:          3.681s
+│           Prediction:     ✅ persist     [persist:0.36 undecided:0.35 evict:0.29]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 6 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       40,446  (reused from previous context)
+│    New Input Tokens:         1,285  (user input + tool results)
+│    Total Input Tokens:      41,731
+│    Output Tokens:                2  (model generates this)
+│
+│    Context Evolution:     40,446 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:          31.81s  (sum of all tools)
+│    Wall-clock Time:          31.70s  (accounting for parallelism)
+│    Overlap Savings:            0.3%
+│
+│    Tool  1: Bash                               
+│           Duration:         31.703s
+│           Prediction:     ❓ undecided   [persist:0.33 undecided:0.36 evict:0.32]
+│
+│    Tool  2: Bash                               
+│           Duration:          0.111s
+│           Prediction:     ✅ persist     [persist:0.43 undecided:0.35 evict:0.22]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 7 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       41,717  (reused from previous context)
+│    New Input Tokens:           750  (user input + tool results)
+│    Total Input Tokens:      42,467
+│    Output Tokens:               10  (model generates this)
+│
+│    Context Evolution:     41,717 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:           5.37s  (sum of all tools)
+│    Wall-clock Time:           3.62s  (accounting for parallelism)
+│    Overlap Savings:           32.6%
+│
+│    Tool  1: Bash                               
+│           Duration:          2.411s
+│           Prediction:     ✅ persist     [persist:0.40 undecided:0.35 evict:0.25]
+│
+│    Tool  2: Bash                               
+│           Duration:          2.957s
+│           Prediction:     ✅ persist     [persist:0.40 undecided:0.35 evict:0.25]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 8 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       42,379  (reused from previous context)
+│    New Input Tokens:         1,055  (user input + tool results)
+│    Total Input Tokens:      43,434
+│    Output Tokens:               10  (model generates this)
+│
+│    Context Evolution:     42,379 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           6.38s  (sum of all tools)
+│    Wall-clock Time:           6.38s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          6.380s
+│           Prediction:     ✅ persist     [persist:0.42 undecided:0.36 evict:0.22]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 9 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       43,420  (reused from previous context)
+│    New Input Tokens:           513  (user input + tool results)
+│    Total Input Tokens:      43,933
+│    Output Tokens:               10  (model generates this)
+│
+│    Context Evolution:     43,420 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.04s  (sum of all tools)
+│    Wall-clock Time:           0.04s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Read                               
+│           Duration:          0.036s
+│           Prediction:     ✅ persist     [persist:0.66 undecided:0.10 evict:0.24]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 10 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       43,921  (reused from previous context)
+│    New Input Tokens:           750  (user input + tool results)
+│    Total Input Tokens:      44,671
+│    Output Tokens:               15  (model generates this)
+│
+│    Context Evolution:     43,921 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 3 tool(s)
+│    Sequential Time:           5.31s  (sum of all tools)
+│    Wall-clock Time:           3.38s  (accounting for parallelism)
+│    Overlap Savings:           36.4%
+│
+│    Tool  1: Edit                               
+│           Duration:          3.327s
+│           Prediction:     ✅ persist     [persist:0.52 undecided:0.24 evict:0.24]
+│
+│    Tool  2: Edit                               
+│           Duration:          1.825s
+│           Prediction:     ✅ persist     [persist:0.58 undecided:0.18 evict:0.24]
+│
+│    Tool  3: Edit                               
+│           Duration:          0.160s
+│           Prediction:     ✅ persist     [persist:0.47 undecided:0.30 evict:0.24]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 11 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       44,660  (reused from previous context)
+│    New Input Tokens:         1,415  (user input + tool results)
+│    Total Input Tokens:      46,075
+│    Output Tokens:               10  (model generates this)
+│
+│    Context Evolution:     44,660 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           5.25s  (sum of all tools)
+│    Wall-clock Time:           5.25s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          5.248s
+│           Prediction:     ❌ evict       [persist:0.25 undecided:0.32 evict:0.43]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 12 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       46,063  (reused from previous context)
+│    New Input Tokens:         2,321  (user input + tool results)
+│    Total Input Tokens:      48,384
+│    Output Tokens:               11  (model generates this)
+│
+│    Context Evolution:     46,063 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.04s  (sum of all tools)
+│    Wall-clock Time:           0.04s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Read                               
+│           Duration:          0.040s
+│           Prediction:     ✅ persist     [persist:0.67 undecided:0.10 evict:0.23]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 13 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       48,372  (reused from previous context)
+│    New Input Tokens:         1,102  (user input + tool results)
+│    Total Input Tokens:      49,474
+│    Output Tokens:               15  (model generates this)
+│
+│    Context Evolution:     48,372 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           4.02s  (sum of all tools)
+│    Wall-clock Time:           4.02s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          4.018s
+│           Prediction:     ✅ persist     [persist:0.41 undecided:0.33 evict:0.26]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 14 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       49,464  (reused from previous context)
+│    New Input Tokens:           797  (user input + tool results)
+│    Total Input Tokens:      50,261
+│    Output Tokens:               13  (model generates this)
+│
+│    Context Evolution:     49,464 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 3 tool(s)
+│    Sequential Time:          37.02s  (sum of all tools)
+│    Wall-clock Time:          16.28s  (accounting for parallelism)
+│    Overlap Savings:           56.0%
+│
+│    Tool  1: Bash                               
+│           Duration:         11.804s
+│           Prediction:     ✅ persist     [persist:0.36 undecided:0.31 evict:0.34]
+│
+│    Tool  2: Bash                               
+│           Duration:         10.704s
+│           Prediction:     ❓ undecided   [persist:0.31 undecided:0.46 evict:0.22]
+│
+│    Tool  3: Bash                               
+│           Duration:         14.511s
+│           Prediction:     ❌ evict       [persist:0.26 undecided:0.34 evict:0.40]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+====================================================================================================
+TRACE SUMMARY
+====================================================================================================
+Total Cache Reads:           576,280 tokens  (reused across turns)
+Total New Input:              68,272 tokens  (fresh user/tool input)
+Total Output Generated:          138 tokens
+
+Tool Execution Stats:
+  Total Tools:            24
+  Min Duration:                0.036s
+  Max Duration:               31.703s
+  Avg Duration:                5.418s
+
+Model Predictions:
+  persist   :             15 ( 62.5%)
+  evict     :              2 (  8.3%)
+  undecided :              7 ( 29.2%)
+
+
+
+####################################################################################################
+EXAMPLE: LONG_TRACE_HIGH_CONTEXT
+####################################################################################################
+
+Template ID:      2b8f1410-8
+Session ID:       2b8f1410-38f8-4aab-a29f-840b55e999d0
+Number of Turns:  15
+Total Tools:      21
+Final Context:    162,072 tokens
+
+----------------------------------------------------------------------------------------------------
+TURN-BY-TURN BREAKDOWN
+----------------------------------------------------------------------------------------------------
+
+┌─ TURN 0 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      142,141  (reused from previous context)
+│    New Input Tokens:           873  (user input + tool results)
+│    Total Input Tokens:     143,014
+│    Output Tokens:            1,549  (model generates this)
+│
+│    Context Evolution:     Fresh conversation start
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:          83.77s  (sum of all tools)
+│    Wall-clock Time:          43.23s  (accounting for parallelism)
+│    Overlap Savings:           48.4%
+│
+│    Tool  1: Bash                               
+│           Duration:         42.788s
+│           Prediction:     ❓ undecided   [persist:0.16 undecided:0.72 evict:0.13]
+│
+│    Tool  2: TodoWrite                          
+│           Duration:         40.983s
+│           Prediction:     ✅ persist     [persist:0.58 undecided:0.20 evict:0.22]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 1 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      143,007  (reused from previous context)
+│    New Input Tokens:         1,818  (user input + tool results)
+│    Total Input Tokens:     144,825
+│    Output Tokens:              161  (model generates this)
+│
+│    Context Evolution:     143,007 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           6.71s  (sum of all tools)
+│    Wall-clock Time:           6.71s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          6.706s
+│           Prediction:     ❓ undecided   [persist:0.29 undecided:0.44 evict:0.28]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 2 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      144,822  (reused from previous context)
+│    New Input Tokens:           269  (user input + tool results)
+│    Total Input Tokens:     145,091
+│    Output Tokens:              229  (model generates this)
+│
+│    Context Evolution:     144,822 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:           2.11s  (sum of all tools)
+│    Wall-clock Time:           1.41s  (accounting for parallelism)
+│    Overlap Savings:           33.1%
+│
+│    Tool  1: Bash                               
+│           Duration:          0.803s
+│           Prediction:     ❓ undecided   [persist:0.36 undecided:0.38 evict:0.27]
+│
+│    Tool  2: Bash                               
+│           Duration:          1.304s
+│           Prediction:     ❓ undecided   [persist:0.32 undecided:0.43 evict:0.25]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 3 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      145,086  (reused from previous context)
+│    New Input Tokens:           533  (user input + tool results)
+│    Total Input Tokens:     145,619
+│    Output Tokens:              263  (model generates this)
+│
+│    Context Evolution:     145,086 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:          26.97s  (sum of all tools)
+│    Wall-clock Time:          26.97s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:         26.972s
+│           Prediction:     ❓ undecided   [persist:0.24 undecided:0.47 evict:0.29]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 4 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      145,613  (reused from previous context)
+│    New Input Tokens:           792  (user input + tool results)
+│    Total Input Tokens:     146,405
+│    Output Tokens:              246  (model generates this)
+│
+│    Context Evolution:     145,613 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:          23.59s  (sum of all tools)
+│    Wall-clock Time:          23.59s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:         23.588s
+│           Prediction:     ❓ undecided   [persist:0.35 undecided:0.40 evict:0.25]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 5 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      146,401  (reused from previous context)
+│    New Input Tokens:           932  (user input + tool results)
+│    Total Input Tokens:     147,333
+│    Output Tokens:              206  (model generates this)
+│
+│    Context Evolution:     146,401 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:          22.46s  (sum of all tools)
+│    Wall-clock Time:          22.46s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:         22.458s
+│           Prediction:     ❓ undecided   [persist:0.29 undecided:0.42 evict:0.29]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 6 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      147,330  (reused from previous context)
+│    New Input Tokens:         1,337  (user input + tool results)
+│    Total Input Tokens:     148,667
+│    Output Tokens:              483  (model generates this)
+│
+│    Context Evolution:     147,330 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:          28.93s  (sum of all tools)
+│    Wall-clock Time:          28.93s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:         28.932s
+│           Prediction:     ❓ undecided   [persist:0.26 undecided:0.51 evict:0.23]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 7 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      148,665  (reused from previous context)
+│    New Input Tokens:           755  (user input + tool results)
+│    Total Input Tokens:     149,420
+│    Output Tokens:            1,009  (model generates this)
+│
+│    Context Evolution:     148,665 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:          45.85s  (sum of all tools)
+│    Wall-clock Time:          41.14s  (accounting for parallelism)
+│    Overlap Savings:           10.3%
+│
+│    Tool  1: Edit                               
+│           Duration:          4.793s
+│           Prediction:     ❓ undecided   [persist:0.39 undecided:0.40 evict:0.21]
+│
+│    Tool  2: Bash                               
+│           Duration:         41.053s
+│           Prediction:     ❓ undecided   [persist:0.26 undecided:0.49 evict:0.25]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 8 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      149,419  (reused from previous context)
+│    New Input Tokens:         2,752  (user input + tool results)
+│    Total Input Tokens:     152,171
+│    Output Tokens:              307  (model generates this)
+│
+│    Context Evolution:     149,419 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:           9.16s  (sum of all tools)
+│    Wall-clock Time:           9.08s  (accounting for parallelism)
+│    Overlap Savings:            0.9%
+│
+│    Tool  1: TodoWrite                          
+│           Duration:          0.184s
+│           Prediction:     ✅ persist     [persist:0.72 undecided:0.09 evict:0.19]
+│
+│    Tool  2: Bash                               
+│           Duration:          8.972s
+│           Prediction:     ❓ undecided   [persist:0.31 undecided:0.46 evict:0.23]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 9 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      152,169  (reused from previous context)
+│    New Input Tokens:         1,697  (user input + tool results)
+│    Total Input Tokens:     153,866
+│    Output Tokens:              237  (model generates this)
+│
+│    Context Evolution:     152,169 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:          19.56s  (sum of all tools)
+│    Wall-clock Time:          19.56s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:         19.562s
+│           Prediction:     ❓ undecided   [persist:0.32 undecided:0.41 evict:0.28]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 10 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      153,864  (reused from previous context)
+│    New Input Tokens:           425  (user input + tool results)
+│    Total Input Tokens:     154,289
+│    Output Tokens:              213  (model generates this)
+│
+│    Context Evolution:     153,864 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:           2.02s  (sum of all tools)
+│    Wall-clock Time:           1.34s  (accounting for parallelism)
+│    Overlap Savings:           33.4%
+│
+│    Tool  1: Bash                               
+│           Duration:          0.789s
+│           Prediction:     ✅ persist     [persist:0.39 undecided:0.35 evict:0.26]
+│
+│    Tool  2: Bash                               
+│           Duration:          1.229s
+│           Prediction:     ✅ persist     [persist:0.43 undecided:0.34 evict:0.23]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 11 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      154,287  (reused from previous context)
+│    New Input Tokens:           745  (user input + tool results)
+│    Total Input Tokens:     155,032
+│    Output Tokens:            1,422  (model generates this)
+│
+│    Context Evolution:     154,287 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 2 tool(s)
+│    Sequential Time:          12.56s  (sum of all tools)
+│    Wall-clock Time:          11.59s  (accounting for parallelism)
+│    Overlap Savings:            7.8%
+│
+│    Tool  1: TodoWrite                          
+│           Duration:          2.815s
+│           Prediction:     ✅ persist     [persist:0.62 undecided:0.13 evict:0.25]
+│
+│    Tool  2: Bash                               
+│           Duration:          9.746s
+│           Prediction:     ❓ undecided   [persist:0.34 undecided:0.48 evict:0.18]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 12 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      155,030  (reused from previous context)
+│    New Input Tokens:         2,765  (user input + tool results)
+│    Total Input Tokens:     157,795
+│    Output Tokens:              220  (model generates this)
+│
+│    Context Evolution:     155,030 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: None (final turn or error)
+│
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 13 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      157,793  (reused from previous context)
+│    New Input Tokens:           364  (user input + tool results)
+│    Total Input Tokens:     158,157
+│    Output Tokens:              947  (model generates this)
+│
+│    Context Evolution:     157,793 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 3 tool(s)
+│    Sequential Time:          13.92s  (sum of all tools)
+│    Wall-clock Time:          10.30s  (accounting for parallelism)
+│    Overlap Savings:           26.0%
+│
+│    Tool  1: TodoWrite                          
+│           Duration:          1.972s
+│           Prediction:     ✅ persist     [persist:0.65 undecided:0.10 evict:0.25]
+│
+│    Tool  2: Read                               
+│           Duration:          2.705s
+│           Prediction:     ✅ persist     [persist:0.60 undecided:0.11 evict:0.29]
+│
+│    Tool  3: Bash                               
+│           Duration:          9.245s
+│           Prediction:     ❓ undecided   [persist:0.31 undecided:0.52 evict:0.17]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 14 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:      158,157  (reused from previous context)
+│    New Input Tokens:         3,915  (user input + tool results)
+│    Total Input Tokens:     162,072
+│    Output Tokens:            1,405  (model generates this)
+│
+│    Context Evolution:     Perfect prefix match! All 158,157 tokens from Turn 13 reused
+│
+│ 🛠️  TOOL EXECUTIONS: None (final turn or error)
+│
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+====================================================================================================
+TRACE SUMMARY
+====================================================================================================
+Total Cache Reads:         2,243,784 tokens  (reused across turns)
+Total New Input:              19,972 tokens  (fresh user/tool input)
+Total Output Generated:        8,897 tokens
+
+Tool Execution Stats:
+  Total Tools:            21
+  Min Duration:                0.184s
+  Max Duration:               42.788s
+  Avg Duration:               14.171s
+
+Model Predictions:
+  persist   :              7 ( 33.3%)
+  evict     :              0 (  0.0%)
+  undecided :             14 ( 66.7%)
+
+
+
+####################################################################################################
+EXAMPLE: DIVERSE_PREDICTIONS
+####################################################################################################
+
+Template ID:      90155b94-1
+Session ID:       90155b94-36e4-436f-9016-8c0f0b753ffb
+Number of Turns:  18
+Total Tools:      15
+Final Context:    81,764 tokens
+
+----------------------------------------------------------------------------------------------------
+TURN-BY-TURN BREAKDOWN
+----------------------------------------------------------------------------------------------------
+
+┌─ TURN 0 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       54,815  (reused from previous context)
+│    New Input Tokens:           286  (user input + tool results)
+│    Total Input Tokens:      55,101
+│    Output Tokens:               24  (model generates this)
+│
+│    Context Evolution:     Fresh conversation start
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           9.36s  (sum of all tools)
+│    Wall-clock Time:           9.36s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          9.358s
+│           Prediction:     ✅ persist     [persist:0.40 undecided:0.30 evict:0.30]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 1 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       55,098  (reused from previous context)
+│    New Input Tokens:           166  (user input + tool results)
+│    Total Input Tokens:      55,264
+│    Output Tokens:              287  (model generates this)
+│
+│    Context Evolution:     55,098 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.02s  (sum of all tools)
+│    Wall-clock Time:           0.02s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: TodoWrite                          
+│           Duration:          0.024s
+│           Prediction:     ✅ persist     [persist:0.71 undecided:0.09 evict:0.20]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 2 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       55,261  (reused from previous context)
+│    New Input Tokens:           569  (user input + tool results)
+│    Total Input Tokens:      55,830
+│    Output Tokens:               21  (model generates this)
+│
+│    Context Evolution:     55,261 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.06s  (sum of all tools)
+│    Wall-clock Time:           0.06s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Write                              
+│           Duration:          0.059s
+│           Prediction:     ✅ persist     [persist:0.49 undecided:0.34 evict:0.18]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 3 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       55,828  (reused from previous context)
+│    New Input Tokens:         1,670  (user input + tool results)
+│    Total Input Tokens:      57,498
+│    Output Tokens:              285  (model generates this)
+│
+│    Context Evolution:     55,828 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.03s  (sum of all tools)
+│    Wall-clock Time:           0.03s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: TodoWrite                          
+│           Duration:          0.032s
+│           Prediction:     ✅ persist     [persist:0.64 undecided:0.13 evict:0.23]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 4 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       57,496  (reused from previous context)
+│    New Input Tokens:           409  (user input + tool results)
+│    Total Input Tokens:      57,905
+│    Output Tokens:               29  (model generates this)
+│
+│    Context Evolution:     57,496 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.18s  (sum of all tools)
+│    Wall-clock Time:           0.18s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          0.179s
+│           Prediction:     ✅ persist     [persist:0.44 undecided:0.26 evict:0.30]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 5 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       57,904  (reused from previous context)
+│    New Input Tokens:           583  (user input + tool results)
+│    Total Input Tokens:      58,487
+│    Output Tokens:                1  (model generates this)
+│
+│    Context Evolution:     57,904 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: None (final turn or error)
+│
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 6 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       14,570  (reused from previous context)
+│    New Input Tokens:        44,842  (user input + tool results)
+│    Total Input Tokens:      59,412
+│    Output Tokens:                4  (model generates this)
+│
+│    Context Evolution:     14,570 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.06s  (sum of all tools)
+│    Wall-clock Time:           0.06s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Read                               
+│           Duration:          0.062s
+│           Prediction:     ✅ persist     [persist:0.64 undecided:0.09 evict:0.27]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 7 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       59,402  (reused from previous context)
+│    New Input Tokens:         1,206  (user input + tool results)
+│    Total Input Tokens:      60,608
+│    Output Tokens:                4  (model generates this)
+│
+│    Context Evolution:     59,402 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:          14.42s  (sum of all tools)
+│    Wall-clock Time:          14.42s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: ExitPlanMode                       
+│           Duration:         14.423s
+│           Prediction:     ❓ undecided   [persist:0.14 undecided:0.68 evict:0.18]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 8 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       60,596  (reused from previous context)
+│    New Input Tokens:           695  (user input + tool results)
+│    Total Input Tokens:      61,291
+│    Output Tokens:                4  (model generates this)
+│
+│    Context Evolution:     60,596 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.08s  (sum of all tools)
+│    Wall-clock Time:           0.08s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Write                              
+│           Duration:          0.080s
+│           Prediction:     ✅ persist     [persist:0.54 undecided:0.31 evict:0.15]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 9 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       61,279  (reused from previous context)
+│    New Input Tokens:         3,661  (user input + tool results)
+│    Total Input Tokens:      64,940
+│    Output Tokens:                2  (model generates this)
+│
+│    Context Evolution:     61,279 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.15s  (sum of all tools)
+│    Wall-clock Time:           0.15s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          0.150s
+│           Prediction:     ✅ persist     [persist:0.39 undecided:0.30 evict:0.31]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 10 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       64,929  (reused from previous context)
+│    New Input Tokens:           639  (user input + tool results)
+│    Total Input Tokens:      65,568
+│    Output Tokens:                6  (model generates this)
+│
+│    Context Evolution:     64,929 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.04s  (sum of all tools)
+│    Wall-clock Time:           0.04s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Read                               
+│           Duration:          0.035s
+│           Prediction:     ✅ persist     [persist:0.58 undecided:0.08 evict:0.34]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 11 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       65,557  (reused from previous context)
+│    New Input Tokens:           905  (user input + tool results)
+│    Total Input Tokens:      66,462
+│    Output Tokens:               10  (model generates this)
+│
+│    Context Evolution:     65,557 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.05s  (sum of all tools)
+│    Wall-clock Time:           0.05s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Read                               
+│           Duration:          0.046s
+│           Prediction:     ✅ persist     [persist:0.58 undecided:0.08 evict:0.33]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 12 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       66,451  (reused from previous context)
+│    New Input Tokens:         1,005  (user input + tool results)
+│    Total Input Tokens:      67,456
+│    Output Tokens:               10  (model generates this)
+│
+│    Context Evolution:     66,451 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.07s  (sum of all tools)
+│    Wall-clock Time:           0.07s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Read                               
+│           Duration:          0.068s
+│           Prediction:     ✅ persist     [persist:0.58 undecided:0.08 evict:0.34]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 13 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       67,446  (reused from previous context)
+│    New Input Tokens:         1,645  (user input + tool results)
+│    Total Input Tokens:      69,091
+│    Output Tokens:                6  (model generates this)
+│
+│    Context Evolution:     67,446 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.06s  (sum of all tools)
+│    Wall-clock Time:           0.06s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          0.061s
+│           Prediction:     ✅ persist     [persist:0.40 undecided:0.28 evict:0.33]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 14 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       69,081  (reused from previous context)
+│    New Input Tokens:           344  (user input + tool results)
+│    Total Input Tokens:      69,425
+│    Output Tokens:               13  (model generates this)
+│
+│    Context Evolution:     69,081 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: None (final turn or error)
+│
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 15 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       14,570  (reused from previous context)
+│    New Input Tokens:        54,571  (user input + tool results)
+│    Total Input Tokens:      69,141
+│    Output Tokens:            1,071  (model generates this)
+│
+│    Context Evolution:     14,570 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.03s  (sum of all tools)
+│    Wall-clock Time:           0.03s  (accounting for parallelism)
+│    Overlap Savings:            0.0%
+│
+│    Tool  1: Edit                               
+│           Duration:          0.034s
+│           Prediction:     ✅ persist     [persist:0.47 undecided:0.29 evict:0.24]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 16 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       69,141  (reused from previous context)
+│    New Input Tokens:         1,887  (user input + tool results)
+│    Total Input Tokens:      71,028
+│    Output Tokens:               25  (model generates this)
+│
+│    Context Evolution:     Perfect prefix match! All 69,141 tokens from Turn 15 reused
+│
+│ 🛠️  TOOL EXECUTIONS: 1 tool(s)
+│    Sequential Time:           0.27s  (sum of all tools)
+│    Wall-clock Time:           0.27s  (accounting for parallelism)
+│    Overlap Savings:           -0.0%
+│
+│    Tool  1: Bash                               
+│           Duration:          0.272s
+│           Prediction:     ✅ persist     [persist:0.41 undecided:0.30 evict:0.29]
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+┌─ TURN 17 ───────────────────────────────────────────────────────────────────────────────────────
+│
+│ � LLM CALL:
+│    Cache Read Tokens:       71,026  (reused from previous context)
+│    New Input Tokens:        10,738  (user input + tool results)
+│    Total Input Tokens:      81,764
+│    Output Tokens:                1  (model generates this)
+│
+│    Context Evolution:     71,026 tokens from previous context
+│
+│ 🛠️  TOOL EXECUTIONS: None (final turn or error)
+│
+└───────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+====================================================================================================
+TRACE SUMMARY
+====================================================================================================
+Total Cache Reads:         1,020,450 tokens  (reused across turns)
+Total New Input:             125,821 tokens  (fresh user/tool input)
+Total Output Generated:        1,803 tokens
+
+Tool Execution Stats:
+  Total Tools:            15
+  Min Duration:                0.024s
+  Max Duration:               14.423s
+  Avg Duration:                1.659s
+
+Model Predictions:
+  persist   :             14 ( 93.3%)
+  evict     :              0 (  0.0%)
+  undecided :              1 (  6.7%)
+

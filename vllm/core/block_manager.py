@@ -330,7 +330,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         #     logger.info("[elasticswap] seq_status=%s" % seq.status)
 
         seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
-        assert isinstance(self.block_allocator, CpuOffloadingBlockAllocator)
+        # assert isinstance(self.block_allocator, CpuOffloadingBlockAllocator)
         token_ids_chunked = chunk_list(seq.get_token_ids(), self.block_size)
         num_cached_blocks = self.block_allocator.num_blocks_cached_for_token_ids(
                                                 prev_block=None,

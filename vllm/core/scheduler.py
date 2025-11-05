@@ -501,7 +501,9 @@ class SwapScheduler:
         if required_num_blocks > blocks_scheduled:                    
             # look into the waiting queue 
             if len(self.scheduler.waiting) >= 2:
-                waiting = list(self.scheduler.waiting)[1:]
+                # Use itertools.islice to skip first element without full list conversion
+                import itertools
+                waiting = itertools.islice(self.scheduler.waiting, 1, None)
                 for seq_group in waiting:
                     _blocks_to_swap = []
 
@@ -982,6 +984,8 @@ class Scheduler:
         self.prev_prompt = False
         # Latency of the last prompt step
         self.last_prompt_latency = 0.0
+        # Track earliest arrival time for delay factor (O(1) instead of O(n))
+        self._earliest_waiting_arrival_time: Optional[float] = None
         # preemption mode, RECOMPUTE or SWAP
         self.user_specified_preemption_mode = scheduler_config.preemption_mode
 
@@ -1042,6 +1046,11 @@ class Scheduler:
         self.ret_queue_sched_policy = self.scheduler_config.returning_queue_sched_policy
         self.ret_queue_turn = 0 # 0 for ret queue, # 1 for waiting queue 
 
+        self.prefix_lookup_count = 0
+        self.prefix_lookup_total_time = 0.0
+        self.prefix_lookup_add_count = 0  # Lookups during add_seq_group
+        self.prefix_lookup_sort_count = 0
+
 
     @property
     def next_cache_id(self):
@@ -1064,6 +1073,7 @@ class Scheduler:
         else:
             if self.scheduler_config.enable_prefix_priority_queue:
                 # Get prefix match length from block manager
+                self.prefix_lookup_add_count += 1
                 match_blocks = self._get_num_cached_blocks(seq_group)
                 match_length = match_blocks * self.cache_config.block_size
                 
@@ -1075,10 +1085,29 @@ class Scheduler:
             else:
                 # Standard FIFO queue
                 self.waiting.append(seq_group)
+            
+            # Track earliest arrival time for delay factor check (O(1) optimization)
+            if seq_group.metrics.arrival_time is not None:
+                if self._earliest_waiting_arrival_time is None:
+                    self._earliest_waiting_arrival_time = seq_group.metrics.arrival_time
+                else:
+                    self._earliest_waiting_arrival_time = min(
+                        self._earliest_waiting_arrival_time, 
+                        seq_group.metrics.arrival_time
+                    )
 
 
     def _get_num_cached_blocks(self, seq_group: SequenceGroup):
-        return self.block_manager.get_num_cached_blocks(seq_group)
+        
+        start_time = time.perf_counter()
+    
+        result = self.block_manager.get_num_cached_blocks(seq_group)
+        
+        elapsed = time.perf_counter() - start_time
+        self.prefix_lookup_count += 1
+        self.prefix_lookup_total_time += elapsed
+        
+        return result
 
     def update_seq_group(self, new_seq_group: SequenceGroup, 
                             seq_group: SequenceGroup,
@@ -1704,7 +1733,10 @@ class Scheduler:
             #Put the sequence back into the waiting queue
             waiting_queue.appendleft(seq_group)
 
-        waiting_queue = deque(sorted(waiting_queue, key=self._get_priority))
+        # waiting_queue = deque(sorted(waiting_queue, key=self._get_priority))
+
+        if isinstance(waiting_queue, deque):
+            waiting_queue = deque(sorted(waiting_queue, key=self._get_priority))
 
         self.waiting = waiting_queue
         self.running = running_queue
@@ -2017,8 +2049,12 @@ class Scheduler:
                 time_since_last_sort = now - self.ret_queue_last_sorted_time
                 
                 if time_since_last_sort >= self.scheduler_config.returning_queue_sort_freq:
+                    queue_size = len(self.returning)
                     # logger.info("[elasticswap] sorting returning queue. Length=%d" 
                     #             % len(self.returning))
+
+                    self.prefix_lookup_sort_count += queue_size
+
                     self.returning = deque(
                     sorted(self.returning, 
                         key=lambda group: self._get_num_cached_blocks(group), 
@@ -2724,6 +2760,42 @@ class Scheduler:
 
         scheduler_outputs.scheduler_time = scheduler_time * 1000
         # logger.info("[log_es] scheduler_time=%f" % scheduler_outputs.scheduler_time)
+
+        # Log metrics every 60 seconds
+        if not hasattr(self, '_last_metrics_log_time'):
+            self._last_metrics_log_time = time.time()
+
+        now = time.time()
+        if now - self._last_metrics_log_time >= 60.0:
+            avg_lookup_time = (self.prefix_lookup_total_time / self.prefix_lookup_count 
+                            if self.prefix_lookup_count > 0 else 0)
+            
+            logger.info(
+                f"[METRICS] Prefix Cache Lookups - "
+                f"Total: {self.prefix_lookup_count}, "
+                f"During add_seq_group: {self.prefix_lookup_add_count}, "
+                f"During returning_sort: {self.prefix_lookup_sort_count}, "
+                f"Avg time: {avg_lookup_time*1000:.3f}ms, "
+                f"Total time: {self.prefix_lookup_total_time:.3f}s"
+            )
+            self._last_metrics_log_time = now
+
+
+            # In scheduler.py, add periodic logging (e.g., every 60 seconds)
+            if hasattr(self.waiting, 'print_performance_metrics'):
+                self.waiting.print_performance_metrics()
+
+        # Recompute earliest arrival time cache after scheduling
+        # This ensures the cache stays fresh for the next delay check
+        if self.waiting:
+            # Only recompute if we have items in the queue
+            earliest = min((sg.metrics.arrival_time for sg in self.waiting 
+                           if sg.metrics.arrival_time is not None), default=None)
+            self._earliest_waiting_arrival_time = earliest
+        else:
+            # Queue is empty, reset the cache
+            self._earliest_waiting_arrival_time = None
+
         return (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc)
 
@@ -2978,8 +3050,13 @@ class Scheduler:
         self.prev_time, self.prev_prompt = now, False
         # Delay scheduling prompts to let waiting queue fill up
         if self.scheduler_config.delay_factor > 0 and self.waiting:
-            earliest_arrival_time = min(
-                [e.metrics.arrival_time for e in self.waiting])
+            # Use cached earliest arrival time (O(1) instead of O(n))
+            earliest_arrival_time = self._earliest_waiting_arrival_time
+            if earliest_arrival_time is None:
+                # Fallback: recompute if cache is stale (shouldn't happen)
+                earliest_arrival_time = min(
+                    [e.metrics.arrival_time for e in self.waiting])
+                self._earliest_waiting_arrival_time = earliest_arrival_time
             passed_delay = ((now - earliest_arrival_time)
                             > (self.scheduler_config.delay_factor *
                                self.last_prompt_latency) or not self.running)
