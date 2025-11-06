@@ -487,7 +487,7 @@ class EngineArgs:
             '--swap-strategy',
             type=str,
             default='swap-hints',
-            choices=['persist', 'swap-lru', 'swap-hints', 'swap-random', 'swap-infercept'],
+            choices=['persist', 'swap-lru', 'swap-hints', 'swap-random', 'swap-infercept', 'swap-mav'],
             help='.')
         
         # parser.add_argument(

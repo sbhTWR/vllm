@@ -737,7 +737,7 @@ class LLMEngine:
                         agent.tool_call_durations.append(tool_call_duration)
                         
                         # Optional: keep only recent N measurements for a moving average
-                        MAX_TOOL_CALL_HISTORY = 100
+                        MAX_TOOL_CALL_HISTORY = self.scheduler_config.tool_call_time_moving_average_window
                         if len(agent.tool_call_durations) > MAX_TOOL_CALL_HISTORY:
                             agent.tool_call_durations.pop(0)
                         

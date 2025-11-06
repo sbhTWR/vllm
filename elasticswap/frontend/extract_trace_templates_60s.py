@@ -1,4 +1,5 @@
-# Add to pipeline.py (before generate functions)
+# Extract trace templates from 60s-annotated Claude dataset
+# Maps <60s -> "persist" and >=60s -> "evict"
 
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional
@@ -11,8 +12,8 @@ from dateutil import parser as date_parser
 @dataclass
 class ModelPrediction:
     """Model prediction for a tool execution"""
-    predicted_label: str  # "evict", "persist", or "undecided"
-    probabilities: Dict[str, float]  # {"persist": 0.x, "undecided": 0.y, "evict": 0.z}
+    predicted_label: str  # "evict" or "persist"
+    probabilities: Dict[str, float]  # {"persist": 0.x, "evict": 0.y}
 
 @dataclass
 class ToolExecution:
@@ -136,6 +137,51 @@ class TraceTemplate:
             print()  # Blank line between turns
 
 
+def map_duration_bucket_to_prediction(duration_bucket_data: dict) -> Optional[ModelPrediction]:
+    """
+    Map duration bucket prediction to persist/evict prediction.
+    
+    Maps:
+    - "<60s" -> "persist"
+    - ">=60s" -> "evict"
+    
+    Args:
+        duration_bucket_data: Dict with 'predicted_bucket' and 'probabilities'
+    
+    Returns:
+        ModelPrediction with persist/evict labels, or None if invalid
+    """
+    if not duration_bucket_data:
+        return None
+    
+    predicted_bucket = duration_bucket_data.get('predicted_bucket')
+    bucket_probs = duration_bucket_data.get('probabilities', {})
+    
+    if not predicted_bucket or not bucket_probs:
+        return None
+    
+    # Map buckets to persist/evict
+    if predicted_bucket == '<60s':
+        predicted_label = 'persist'
+    elif predicted_bucket == '>=60s':
+        predicted_label = 'evict'
+    else:
+        # Unknown bucket, skip
+        return None
+    
+    # Map probabilities
+    persist_prob = bucket_probs.get('<60s', 0.0)
+    evict_prob = bucket_probs.get('>=60s', 0.0)
+    
+    return ModelPrediction(
+        predicted_label=predicted_label,
+        probabilities={
+            'persist': persist_prob,
+            'evict': evict_prob
+        }
+    )
+
+
 def split_session_into_time_windows(session_events: List[dict], window_duration_seconds: float = 600) -> List[List[dict]]:
     """
     Split a session into multiple sub-sessions based on time windows from the first LLM call.
@@ -198,28 +244,26 @@ def extract_trace_templates_with_evolution(
     max_trace_duration_minutes: float = None  # No longer used, kept for compatibility
 ) -> List[TraceTemplate]:
     """
-    Extract trace templates from Claude tool call dataset with model predictions.
+    Extract trace templates from Claude tool call dataset with 60s bucket predictions.
     
-    This version is designed for annotated datasets that include model predictions
-    for tool executions. Unlike the original version:
-    1. NO filtering based on tool execution times (no percentile filtering)
-    2. Includes model predictions in tool executions
-    3. Splits traces into fixed time windows from first LLM call
-    4. Keeps all other logic (context evolution, deduplication, etc.)
+    This version maps duration bucket predictions to persist/evict labels:
+    - "<60s" -> "persist"
+    - ">=60s" -> "evict"
     
     Args:
-        claude_dataset_dir: Directory with *_events.json files (annotated)
+        claude_dataset_dir: Directory with *_events.json files (60s annotated)
         window_duration_minutes: Duration of each window in minutes (default 10 min)
         max_trace_duration_minutes: Deprecated, kept for compatibility
     
     Returns:
-        List of TraceTemplate objects with turn-by-turn token evolution and model predictions
+        List of TraceTemplate objects with turn-by-turn token evolution and persist/evict predictions
     """
     json_files = sorted(glob.glob(f"{claude_dataset_dir}/*_events.json"))
     
-    print(f"Loading annotated traces from {claude_dataset_dir}...")
+    print(f"Loading 60s-annotated traces from {claude_dataset_dir}...")
+    print(f"Mapping: <60s -> persist, >=60s -> evict")
     
-    # Collect all tool durations for statistics (but no filtering)
+    # Collect all tool durations for statistics
     all_tool_durations = []
     all_predictions = []
     for json_file in json_files:
@@ -232,14 +276,16 @@ def extract_trace_templates_with_evolution(
                 if exec_time is not None and exec_time > 0:
                     all_tool_durations.append(exec_time / 1000.0)
                 
-                # Track model predictions
-                model_pred = event.get('model_prediction')
-                if model_pred:
-                    all_predictions.append(model_pred['predicted_label'])
+                # Track model predictions (after mapping)
+                duration_bucket = event.get('duration_bucket_prediction')
+                if duration_bucket:
+                    model_pred = map_duration_bucket_to_prediction(duration_bucket)
+                    if model_pred:
+                        all_predictions.append(model_pred.predicted_label)
     
-    # Print statistics (informational only, no filtering)
+    # Print statistics
     if all_tool_durations:
-        print(f"  Total tools across all traces: {len(all_tool_durations)}")
+        print(f"\n  Total tools across all traces: {len(all_tool_durations)}")
         print(f"  Duration p50: {np.percentile(all_tool_durations, 50):.3f}s")
         print(f"  Duration p75: {np.percentile(all_tool_durations, 75):.3f}s")
         print(f"  Duration p90: {np.percentile(all_tool_durations, 90):.3f}s")
@@ -250,7 +296,7 @@ def extract_trace_templates_with_evolution(
     if all_predictions:
         from collections import Counter
         pred_counts = Counter(all_predictions)
-        print(f"\n  Model prediction distribution:")
+        print(f"\n  Model prediction distribution (after mapping):")
         for label, count in sorted(pred_counts.items()):
             print(f"    {label}: {count} ({count/len(all_predictions)*100:.1f}%)")
     
@@ -344,14 +390,11 @@ def extract_trace_templates_with_evolution(
                         if exec_time is not None and exec_time > 0:  # Skip 0.0 and None
                             duration_seconds = exec_time / 1000.0
                             
-                            # Extract model prediction if available
+                            # Extract and map duration bucket prediction
                             model_pred = None
-                            if 'model_prediction' in event:
-                                pred_data = event['model_prediction']
-                                model_pred = ModelPrediction(
-                                    predicted_label=pred_data['predicted_label'],
-                                    probabilities=pred_data['probabilities']
-                                )
+                            duration_bucket = event.get('duration_bucket_prediction')
+                            if duration_bucket:
+                                model_pred = map_duration_bucket_to_prediction(duration_bucket)
                             
                             # No artificial cap - preserve actual tool durations
                             tool_exec = ToolExecution(
@@ -592,8 +635,8 @@ def _aggregate_predictions(predictions: List[Optional[ModelPrediction]], strateg
         strategy: Aggregation strategy to use
             - 'avg_probabilities': Average probabilities, select max (default)
             - 'majority_vote': Most common label
-            - 'conservative': Prefer persist > undecided > evict
-            - 'aggressive': Prefer evict > undecided > persist
+            - 'conservative': Prefer persist > evict
+            - 'aggressive': Prefer evict > persist
             - 'max_confidence': Use prediction with highest confidence
     
     Returns:
@@ -615,7 +658,6 @@ def _aggregate_predictions(predictions: List[Optional[ModelPrediction]], strateg
         # Average probabilities
         avg_probs = {
             'persist': sum(p.probabilities['persist'] for p in valid_preds) / len(valid_preds),
-            'undecided': sum(p.probabilities['undecided'] for p in valid_preds) / len(valid_preds),
             'evict': sum(p.probabilities['evict'] for p in valid_preds) / len(valid_preds)
         }
         
@@ -627,19 +669,16 @@ def _aggregate_predictions(predictions: List[Optional[ModelPrediction]], strateg
         }
     
     elif strategy == 'conservative':
-        # Prefer persist > undecided > evict
+        # Prefer persist > evict
         labels = [p.predicted_label for p in valid_preds]
         
         if 'persist' in labels:
             aggregated_label = 'persist'
-        elif 'undecided' in labels:
-            aggregated_label = 'undecided'
         else:
             aggregated_label = 'evict'
         
         avg_probs = {
             'persist': sum(p.probabilities['persist'] for p in valid_preds) / len(valid_preds),
-            'undecided': sum(p.probabilities['undecided'] for p in valid_preds) / len(valid_preds),
             'evict': sum(p.probabilities['evict'] for p in valid_preds) / len(valid_preds)
         }
         
@@ -651,19 +690,16 @@ def _aggregate_predictions(predictions: List[Optional[ModelPrediction]], strateg
         }
     
     elif strategy == 'aggressive':
-        # Prefer evict > undecided > persist
+        # Prefer evict > persist
         labels = [p.predicted_label for p in valid_preds]
         
         if 'evict' in labels:
             aggregated_label = 'evict'
-        elif 'undecided' in labels:
-            aggregated_label = 'undecided'
         else:
             aggregated_label = 'persist'
         
         avg_probs = {
             'persist': sum(p.probabilities['persist'] for p in valid_preds) / len(valid_preds),
-            'undecided': sum(p.probabilities['undecided'] for p in valid_preds) / len(valid_preds),
             'evict': sum(p.probabilities['evict'] for p in valid_preds) / len(valid_preds)
         }
         
@@ -690,7 +726,6 @@ def _aggregate_predictions(predictions: List[Optional[ModelPrediction]], strateg
         # Average probabilities
         avg_probs = {
             'persist': sum(p.probabilities['persist'] for p in valid_preds) / len(valid_preds),
-            'undecided': sum(p.probabilities['undecided'] for p in valid_preds) / len(valid_preds),
             'evict': sum(p.probabilities['evict'] for p in valid_preds) / len(valid_preds)
         }
         
@@ -705,10 +740,46 @@ def _aggregate_predictions(predictions: List[Optional[ModelPrediction]], strateg
         }
 
 
+def compute_predicted_tool_duration(tool_predictions: List[Optional[ModelPrediction]], 
+                                   persist_bin_avg: float = 30.0,
+                                   evict_bin_avg: float = 120.0) -> float:
+    """
+    Compute total predicted duration by summing individual tool expected durations.
+    
+    For each tool:
+        expected_duration = P(persist) * persist_bin_avg + P(evict) * evict_bin_avg
+    
+    Total duration = sum of all individual expected durations
+    
+    Args:
+        tool_predictions: List of ModelPrediction objects for each tool
+        persist_bin_avg: Average duration for persist bin (<60s), default 30s
+        evict_bin_avg: Average duration for evict bin (>=60s), default 120s
+    
+    Returns:
+        Total predicted duration in seconds
+    """
+    total_duration = 0.0
+    
+    for pred in tool_predictions:
+        if pred is not None:
+            # Expected value for this specific tool
+            persist_prob = pred.probabilities.get('persist', 0.0)
+            evict_prob = pred.probabilities.get('evict', 0.0)
+            
+            expected_duration = persist_prob * persist_bin_avg + evict_prob * evict_bin_avg
+            total_duration += expected_duration
+    
+    return total_duration
+
+
 def trajectory_to_dag_nodes(trajectory: RequestTrajectory, 
                                 annotate: bool = True, 
                                 prefill_only: bool = False,
-                                aggregation_strategy: str = 'avg_probabilities'):
+                                aggregation_strategy: str = 'avg_probabilities',
+                                oracle: bool = True,
+                                persist_bin_avg: float = 30.0,
+                                evict_bin_avg: float = 120.0):
     """
     Convert a RequestTrajectory into a list of Node objects for DAG execution.
     
@@ -724,8 +795,12 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
         trajectory: RequestTrajectory to convert
         annotate: Whether to annotate with expected durations (default True)
         prefill_only: If True, only generate prefill requests (1 output token)
-        aggregation_strategy: Strategy for aggregating tool predictions
+        aggregation_strategy: Strategy for aggregating tool predictions (for labels)
             Options: 'avg_probabilities', 'majority_vote', 'conservative', 'aggressive', 'max_confidence'
+        oracle: If True, use actual tool execution times (ORACLE - ground truth)
+                If False, use ML predictions from model (REALISTIC scenario)
+        persist_bin_avg: Average duration for persist bin (<60s), default 30s
+        evict_bin_avg: Average duration for evict bin (>=60s), default 120s
     
     Returns:
         List of nodes in dependency order
@@ -763,26 +838,24 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
             if aggregated_pred:
                 llm_node.metadata["aggregated_tool_prediction"] = aggregated_pred
         else:
-            # Modification 2 & 3: No tools - add dummy prediction
+            # No tools - add dummy prediction
             if is_last_turn:
-                # Modification 3: Last turn without tools -> evict=1.0
+                # Last turn without tools -> evict=1.0
                 llm_node.metadata["aggregated_tool_prediction"] = {
                     'predicted_label': 'evict',
                     'probabilities': {
                         'persist': 0.0,
-                        'undecided': 0.0,
                         'evict': 1.0
                     },
                     'aggregation_method': 'dummy_last_turn',
                     'num_tools_aggregated': 0
                 }
             else:
-                # Modification 2: Non-last turn without tools -> persist=1.0
+                # Non-last turn without tools -> persist=1.0
                 llm_node.metadata["aggregated_tool_prediction"] = {
                     'predicted_label': 'persist',
                     'probabilities': {
                         'persist': 1.0,
-                        'undecided': 0.0,
                         'evict': 0.0
                     },
                     'aggregation_method': 'dummy_no_tools',
@@ -814,7 +887,7 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
             nodes.append(combined_tool_node)
             current_turn_tool_nodes.append(combined_tool_node)
         else:
-            # Modification 1: No tools - insert dummy tool node with duration=0
+            # No tools - insert dummy tool node with duration=0
             dummy_tool_node = ToolCallNode(
                 tool_fn=lambda **kwargs: "Dummy tool result",
                 name=f"{trajectory.request_id}_tools_{turn.turn_idx}_dummy",
@@ -837,22 +910,59 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
     # Annotate with expected durations for scheduler hints
     # For Claude traces, we want immediate tool wait time, not cumulative downstream
     if annotate:
+        # First, identify all LLM nodes and find the last one
+        llm_nodes = [n for n in nodes if hasattr(n, 'prompt_token_ids')]
+        last_llm_node = llm_nodes[-1] if llm_nodes else None
+        
         # Custom annotation for sequential multi-turn traces
         # Each LLM node should only know about its immediate tool wait time
-        for node in nodes:
-            if hasattr(node, 'prompt_token_ids'):  # LLM node
-                # Find immediate downstream tool nodes
-                immediate_tools = [n for n in node.downstream if hasattr(n, 'expected_time')]
+        for idx, node in enumerate(llm_nodes):
+            turn = trajectory.turns[idx]
+            is_final = (node is last_llm_node)
+            
+            # Find immediate downstream tool nodes (excluding dummy tools)
+            immediate_tools = [n for n in node.downstream if hasattr(n, 'expected_time')]
+            real_tools = [t for t in immediate_tools if not t.metadata.get('is_dummy', False)]
+            
+            if is_final:
+                # Final LLM call: KV cache won't be reused after this, even if there are tools
+                node.metadata["kv_reuse_expected_duration_s"] = 9999999.0
                 
-                if immediate_tools:
-                    # Use max tool time (they execute in parallel)
-                    max_tool_time = max(t.expected_time for t in immediate_tools)
+            elif oracle:
+                # ORACLE MODE: Use ground truth (actual tool execution time)
+                # This is what a perfect predictor would know
+                if real_tools:
+                    max_tool_time = max(t.expected_time for t in real_tools)
                     node.metadata["kv_reuse_expected_duration_s"] = max_tool_time
                 else:
-                    # No tools after this turn - it's a leaf (final turn)
-                    node.metadata["kv_reuse_expected_duration_s"] = 9999999.0
-            else:  # Tool node
-                # Tools don't need this metadata
+                    node.metadata["kv_reuse_expected_duration_s"] = 0.0
+                    
+            else:
+                # PREDICTION MODE: Sum of per-tool expected durations
+                # This is what's available in a realistic deployment
+                if len(turn.tool_predictions) > 0:
+                    # Use the new per-tool aggregation method
+                    predicted_duration = compute_predicted_tool_duration(
+                        turn.tool_predictions,
+                        persist_bin_avg=persist_bin_avg,
+                        evict_bin_avg=evict_bin_avg
+                    )
+                    node.metadata["kv_reuse_expected_duration_s"] = predicted_duration
+                    
+                    # Optional: Store for debugging
+                    node.metadata["predicted_duration_breakdown"] = {
+                        'num_tools': len(turn.tool_predictions),
+                        'total_predicted': predicted_duration,
+                        'persist_bin_avg': persist_bin_avg,
+                        'evict_bin_avg': evict_bin_avg
+                    }
+                else:
+                    # No tools - immediate reuse
+                    node.metadata["kv_reuse_expected_duration_s"] = 0.0
+        
+        # Tool nodes don't need kv_reuse hints
+        for node in nodes:
+            if not hasattr(node, 'prompt_token_ids'):
                 node.metadata["kv_reuse_expected_duration_s"] = 0.0
     
     return nodes
@@ -860,29 +970,36 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
 
 def generate_claude_trace_workload(
     num_requests: int,
-    claude_dataset_dir: str = "/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated",
+    claude_dataset_dir: str = "/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s",
     arrival_rate: float = 0.5,
     seed: int = 42,
     prefill_only: bool = False,
     window_duration_minutes: float = 10,
-    aggregation_strategy: str = 'avg_probabilities'
+    aggregation_strategy: str = 'avg_probabilities',
+    oracle: bool = True,
+    persist_bin_avg: float = 30.0,
+    evict_bin_avg: float = 120.0
 ):
     """
-    Generate workload from annotated Claude traces for use with pipeline.py.
+    Generate workload from 60s-annotated Claude traces for use with pipeline.py.
     
-    This version works with annotated traces that include model predictions.
-    Unlike the original version, it does NOT filter traces based on tool duration.
-    Traces are split into fixed time windows from the first LLM call.
+    This version maps duration bucket predictions to persist/evict labels:
+    - "<60s" -> "persist" 
+    - ">=60s" -> "evict"
     
     Args:
         num_requests: Number of requests to generate
-        claude_dataset_dir: Directory with annotated Claude trace JSON files
+        claude_dataset_dir: Directory with 60s-annotated Claude trace JSON files
         arrival_rate: Poisson arrival rate (requests per second)
         seed: Random seed
         prefill_only: If True, only generate prefill requests (1 output token)
         window_duration_minutes: Duration of each window in minutes (default 10)
-        aggregation_strategy: Strategy for aggregating parallel tool predictions (default 'avg_probabilities')
+        aggregation_strategy: Strategy for aggregating parallel tool predictions (for labels)
             Options: 'avg_probabilities', 'majority_vote', 'conservative', 'aggressive', 'max_confidence'
+        oracle: If True, use actual tool execution times (ORACLE - ground truth upper bound)
+                If False, use per-tool ML predictions (REALISTIC - practical performance)
+        persist_bin_avg: Average duration for persist bin (<60s), default 30s
+        evict_bin_avg: Average duration for evict bin (>=60s), default 120s
     
     Returns:
         Tuple of (dags, dag_names, arrival_times, requests_meta) for run_dags_with_arrival_times
@@ -915,7 +1032,15 @@ def generate_claude_trace_workload(
     requests_meta = []
     
     for i, traj in enumerate(trajectories):
-        dag = trajectory_to_dag_nodes(traj, annotate=True, prefill_only=prefill_only, aggregation_strategy=aggregation_strategy)
+        dag = trajectory_to_dag_nodes(
+            traj, 
+            annotate=True, 
+            prefill_only=prefill_only, 
+            aggregation_strategy=aggregation_strategy,
+            oracle=oracle,
+            persist_bin_avg=persist_bin_avg,
+            evict_bin_avg=evict_bin_avg
+        )
         dags.append(dag)
         dag_names.append(traj.request_id)
         
@@ -976,7 +1101,8 @@ def generate_claude_trace_workload(
     hash_bytes = np.array(hash_data, dtype=np.int64).tobytes()
     workload_hash = hashlib.sha256(hash_bytes).hexdigest()[:16]
     
-    print(f"\n✓ Generated Claude trace workload (annotated):")
+    mode_str = "ORACLE (ground truth)" if oracle else f"PREDICTED (persist={persist_bin_avg}s, evict={evict_bin_avg}s)"
+    print(f"\n✓ Generated Claude trace workload ({mode_str}):")
     print(f"  Requests: {num_requests}")
     print(f"  Arrival rate: {arrival_rate} req/s")
     print(f"  Seed: {seed}")
@@ -984,7 +1110,7 @@ def generate_claude_trace_workload(
     print(f"  Avg turns per request: {np.mean([len(t.turns) for t in trajectories]):.1f}")
     print(f"  Avg tokens per request: {np.mean([m['total_input_tokens'] for m in requests_meta]):.0f}")
     print(f"  Total DAG nodes: {sum(len(dag) for dag in dags)}")
-    print(f"\n  Model prediction distribution:")
+    print(f"\n  Model prediction distribution (persist/evict):")
     total_preds = sum(prediction_stats.values())
     if total_preds > 0:
         for label in sorted(prediction_stats.keys()):
@@ -998,7 +1124,7 @@ def generate_claude_trace_workload(
 
 def main():
     # Extract templates
-    templates = extract_trace_templates_with_evolution("/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated")
+    templates = extract_trace_templates_with_evolution("/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s")
     print(f"\nExtracted {len(templates)} templates total\n")
     
     # Show first template as example
@@ -1038,4 +1164,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

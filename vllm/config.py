@@ -1126,7 +1126,7 @@ class CacheConfig:
                 f"supported. Got {self.block_allocator}.")
 
         if self.swap_strategy not in [
-                "persist", "swap-lru", "swap-hints", "swap-random", "swap-infercept"
+                "persist", "swap-lru", "swap-hints", "swap-random", "swap-infercept", "swap-mav"
         ]:
             raise ValueError(
                 "Only persist and swap_all is "
@@ -1143,6 +1143,8 @@ class CacheConfig:
             self.swap_strategy = SwapStrategy.SWAP_RANDOM
         elif self.swap_strategy == "swap-infercept":
             self.swap_strategy = SwapStrategy.SWAP_INFERCEPT
+        elif self.swap_strategy == "swap-mav":
+            self.swap_strategy = SwapStrategy.SWAP_MAV
 
         if self.cache_pin_ttl == None:
             self.cache_pin_ttl = -1 
@@ -1588,6 +1590,8 @@ class SchedulerConfig:
     priority_queue_num_levels: int = 15
     priority_queue_max_match_len: int = 200000
     priority_queue_bucketing: str = "logarithmic"
+
+    tool_call_time_moving_average_window: int = 5
 
     def compute_hash(self) -> str:
         """

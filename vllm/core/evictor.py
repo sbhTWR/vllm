@@ -22,6 +22,7 @@ class SwapStrategy(enum.Enum):
     SWAP_HINTS = enum.auto()
     SWAP_RANDOM = enum.auto()
     SWAP_INFERCEPT = enum.auto()
+    SWAP_MAV = enum.auto()
 
 class Evictor(ABC):
     """The Evictor subclasses should be used by the BlockAllocator class to
@@ -194,6 +195,23 @@ class FreeBlockSwapScheduler:
                     
                     self.free_table.pop(block_id)
                     return block_id, block_metadata
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_MAV:
+                next_reuse_expected_time, last_accessed, num_hashed_tokens, block_id, content_hash = heapq.heappop(
+                    self.priority_queue
+                )
+                if (block_id in self.free_table and
+                        self.free_table[block_id].last_accessed == last_accessed):
+                    
+                    block_metadata = self.free_table[block_id]
+                    agent_id = block_metadata.last_accessed_by_user
+        
+                    # Optional: Add logging
+                    logger.info(f"[swap_mav] Evicting block_id={block_id}, "
+                            f"next_reuse_expected_time={next_reuse_expected_time:.3f}s, agent={agent_id}")
+
+                    self.free_table.pop(block_id)
+                    return block_id, block_metadata
 
             
 
@@ -294,6 +312,14 @@ class FreeBlockSwapScheduler:
                 (priority, last_accessed, -num_hashed_tokens, block_id, content_hash))
             self._cleanup_if_necessary()
 
+        elif self.swap_strategy == SwapStrategy.SWAP_MAV:
+            mav_time = avg_tool_call_time if avg_tool_call_time is not None else 0.0
+            next_reuse_expected_time = last_accessed + mav_time
+            heapq.heappush(
+                self.priority_queue,
+                (-next_reuse_expected_time, last_accessed, -num_hashed_tokens, block_id, content_hash))
+            self._cleanup_if_necessary()
+
 
     def _cleanup_if_necessary(self):
         if len(self.priority_queue) > LRUEvictor.CLEANUP_THRESHOLD * len(
@@ -333,6 +359,13 @@ class FreeBlockSwapScheduler:
                 
                 new_priority_queue.append(
                     (priority, block.last_accessed, -block.num_hashed_tokens, block_id,
+                    block.content_hash))
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_MAV:
+                avg_tool_call_time = block.avg_tool_call_time if block.avg_tool_call_time is not None else 0.0
+                next_reuse_expected_time = block.last_accessed + avg_tool_call_time
+                new_priority_queue.append(
+                    (-next_reuse_expected_time, block.last_accessed, -block.num_hashed_tokens, block_id,
                     block.content_hash))
 
         heapq.heapify(new_priority_queue)
