@@ -542,7 +542,7 @@ def execute_workload_claude_traces(
     model="Qwen/Qwen2.5-Coder-32B-Instruct",
     wait_for_all_done=False,
     timeout=300,
-    claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude",
+    claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s_sessionwise",
     results_dir=None  # NEW: For saving metadata
 ):
     """
@@ -698,13 +698,15 @@ def main():
     #         0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 
     #         0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
-    # rates = [0.2]
+    # rates = [0.3]
 
     # rates = [2.0, 3.0, 4.0, 5.0]
     # rates = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [0.01, 0.02, 0.03, 0.04]
+    # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     # rates = [0.2]
     # rates = [0.5]
     # rates = [0.1, 0.2, 0.3, 0.4, 0.5]
@@ -742,7 +744,7 @@ def main():
     # rates = [0.2]
     # rates = [0.04]
     # rates = [0.1]
-    t = 300
+    t = 600
     # t = 100
     # enable_returning_queue = True
     enable_swap_budget = False
@@ -757,7 +759,7 @@ def main():
     cuda_device = '6,7'
     wait_for_all_done = False
     max_num_batched_tokens = 512
-    timeout = 600
+    timeout = t
     model = "Qwen/Qwen2.5-Coder-32B-Instruct"
     rope_scaling = '{"rope_type":"yarn","factor":7.0,"original_max_position_embeddings":32768}'
     max_model_len = 200000
@@ -768,6 +770,7 @@ def main():
     priority_queue_num_levels = 100
     priority_queue_max_match_len = 100000
     priority_queue_bucketing = 'linear'
+    window_duration_minutes = 2
 
 
     # workloads = {}
@@ -792,11 +795,12 @@ def main():
         # Generate workload once per rate
         dags, dag_names, arrival_times, requests_meta = generate_claude_trace_workload(
             num_requests=num_requests,
-            claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s",
+            claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s_sessionwise",
             arrival_rate=rate,
             seed=42,
             prefill_only=PREFILL_ONLY,
             aggregation_strategy='avg_probabilities',
+            window_duration_minutes=window_duration_minutes,
             oracle=True,
             persist_bin_avg=30.0,
             evict_bin_avg=120.0
@@ -813,11 +817,12 @@ def main():
 
         dags_predicted, dag_names_predicted, arrival_times_predicted, requests_meta_predicted = generate_claude_trace_workload(
             num_requests=num_requests,
-            claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s",
+            claude_dataset_dir="/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s_sessionwise",
             arrival_rate=rate,
             seed=42,
             prefill_only=PREFILL_ONLY,
             aggregation_strategy='avg_probabilities',
+            window_duration_minutes=window_duration_minutes,
             oracle=False,
             persist_bin_avg=30.0,
             evict_bin_avg=120.0
@@ -864,7 +869,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-182-claude-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-190-claude-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 

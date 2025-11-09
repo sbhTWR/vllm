@@ -1,13 +1,20 @@
 # Extract trace templates from 60s-annotated Claude dataset
 # Maps <60s -> "persist" and >=60s -> "evict"
 
+import os
 from dataclasses import dataclass
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
 import numpy as np
 import glob
 import json
 from collections import defaultdict
 from dateutil import parser as date_parser
+
+TOOL_DURATION_MEANS: Dict[str, Dict[str, float]] = {}
+GLOBAL_DURATION_MEANS: Dict[str, float] = {
+    'persist': 30.0,
+    'evict': 120.0,
+}
 
 @dataclass
 class ModelPrediction:
@@ -241,7 +248,8 @@ def split_session_into_time_windows(session_events: List[dict], window_duration_
 def extract_trace_templates_with_evolution(
     claude_dataset_dir: str,
     window_duration_minutes: float = 10,      # Split traces into N-minute windows
-    max_trace_duration_minutes: float = None  # No longer used, kept for compatibility
+    max_trace_duration_minutes: float = None,  # No longer used, kept for compatibility
+    training_tool_calls_path: Optional[str] = "/vllm/vllm/elasticswap/training_tool_calls_sessionwise.json"
 ) -> List[TraceTemplate]:
     """
     Extract trace templates from Claude tool call dataset with 60s bucket predictions.
@@ -262,19 +270,63 @@ def extract_trace_templates_with_evolution(
     
     print(f"Loading 60s-annotated traces from {claude_dataset_dir}...")
     print(f"Mapping: <60s -> persist, >=60s -> evict")
+
+    # Load training tool call IDs to filter
+    training_tool_call_ids: Set[Tuple[str, int]] = set()
+    session_alias_to_id = {}
     
-    # Collect all tool durations for statistics
+    if training_tool_calls_path:
+        with open(training_tool_calls_path) as f:
+            training_tool_calls = json.load(f)
+        manifest_path = os.path.join(claude_dataset_dir, "manifest.json")
+        if os.path.exists(manifest_path):
+            with open(manifest_path) as mf:
+                manifest_data = json.load(mf)
+            for entry in manifest_data:
+                session_name = entry.get("session_name")
+                session_id = entry.get("session_id")
+                if session_name and session_id:
+                    session_alias_to_id[session_name] = session_id
+
+        print(f"  Loaded {len(training_tool_calls)} training tool calls.")
+    
+    dataset_alias_map: Dict[str, str] = {}
+
+    # Collect all tool durations for statistics (across entire dataset, without filtering)
     all_tool_durations = []
     all_predictions = []
+    tool_duration_accumulators = defaultdict(lambda: {
+        'persist': {'sum': 0.0, 'count': 0},
+        'evict': {'sum': 0.0, 'count': 0},
+    })
+    global_duration_accumulators = {
+        'persist': {'sum': 0.0, 'count': 0},
+        'evict': {'sum': 0.0, 'count': 0},
+    }
     for json_file in json_files:
         with open(json_file) as f:
             events = json.load(f)
+        
+        alias_name = os.path.basename(json_file).replace("_events.json", "")
+        if alias_name and alias_name not in dataset_alias_map and events:
+            first_session_id = events[0].get('session_id')
+            if first_session_id:
+                dataset_alias_map[alias_name] = first_session_id
+        
+        session_event_counters = defaultdict(int)
+        for event in events:
+            session_id = event.get('session_id')
+            if session_id is None:
+                continue
+            event['_event_index'] = session_event_counters[session_id]
+            session_event_counters[session_id] += 1
         
         for event in events:
             if event['event_type'] == 'tool_call':
                 exec_time = event.get('execution_time_ms')
                 if exec_time is not None and exec_time > 0:
-                    all_tool_durations.append(exec_time / 1000.0)
+                    duration_seconds = exec_time / 1000.0
+                    all_tool_durations.append(duration_seconds)
                 
                 # Track model predictions (after mapping)
                 duration_bucket = event.get('duration_bucket_prediction')
@@ -282,6 +334,61 @@ def extract_trace_templates_with_evolution(
                     model_pred = map_duration_bucket_to_prediction(duration_bucket)
                     if model_pred:
                         all_predictions.append(model_pred.predicted_label)
+                        bucket_label = model_pred.predicted_label
+                        tool_stats = tool_duration_accumulators[event['tool_name']]
+                        tool_stats[bucket_label]['sum'] += duration_seconds
+                        tool_stats[bucket_label]['count'] += 1
+                        global_duration_accumulators[bucket_label]['sum'] += duration_seconds
+                        global_duration_accumulators[bucket_label]['count'] += 1
+
+    # Incorporate dataset-derived alias map if manifest didn't cover it
+    for alias, session_id in dataset_alias_map.items():
+        session_alias_to_id.setdefault(alias, session_id)
+
+    # Resolve training tool call identifiers using combined alias map
+    if training_tool_calls_path:
+        for entry in training_tool_calls:
+            event_index = entry.get("event_index")
+            if event_index is None:
+                continue
+            possible_session_ids = set()
+            for key in (entry.get("session_id"), entry.get("session_name")):
+                if not key:
+                    continue
+                possible_session_ids.add(key)
+                mapped = session_alias_to_id.get(key)
+                if mapped:
+                    possible_session_ids.add(mapped)
+            if not possible_session_ids:
+                continue
+            for session_id in possible_session_ids:
+                training_tool_call_ids.add((session_id, event_index))
+        print(f"  Resolved identifiers for filtering: {len(training_tool_call_ids)}")
+
+    # Compute per-tool and global duration means for persist/evict buckets
+    tool_duration_means: Dict[str, Dict[str, float]] = {}
+    for tool_name, bucket_stats in tool_duration_accumulators.items():
+        tool_duration_means[tool_name] = {}
+        for bucket_label in ('persist', 'evict'):
+            bucket = bucket_stats[bucket_label]
+            if bucket['count'] > 0:
+                tool_duration_means[tool_name][bucket_label] = bucket['sum'] / bucket['count']
+
+    global_duration_means = {}
+    for bucket_label in ('persist', 'evict'):
+        bucket = global_duration_accumulators[bucket_label]
+        if bucket['count'] > 0:
+            global_duration_means[bucket_label] = bucket['sum'] / bucket['count']
+
+    # Update module-level means with computed statistics
+    global TOOL_DURATION_MEANS, GLOBAL_DURATION_MEANS
+    TOOL_DURATION_MEANS = tool_duration_means
+    GLOBAL_DURATION_MEANS = {
+        'persist': global_duration_means.get('persist', GLOBAL_DURATION_MEANS.get('persist', 30.0)),
+        'evict': global_duration_means.get('evict', GLOBAL_DURATION_MEANS.get('evict', 120.0)),
+    }
+    if GLOBAL_DURATION_MEANS['persist'] and GLOBAL_DURATION_MEANS['evict']:
+        print(f"  Global duration means (s): persist={GLOBAL_DURATION_MEANS['persist']:.3f}, evict={GLOBAL_DURATION_MEANS['evict']:.3f}")
     
     # Print statistics
     if all_tool_durations:
@@ -307,10 +414,20 @@ def extract_trace_templates_with_evolution(
     total_traces = 0
     traces_split = 0
     window_duration_seconds = window_duration_minutes * 60
+    filtered_tool_call_count = 0
+    filtered_templates = 0
     
     for json_file in json_files:
         with open(json_file) as f:
             events = json.load(f)
+        
+        session_event_counters = defaultdict(int)
+        for event in events:
+            session_id = event.get('session_id')
+            if session_id is None:
+                continue
+            event['_event_index'] = session_event_counters[session_id]
+            session_event_counters[session_id] += 1
         
         # SORT BY TIMESTAMP to ensure chronological order
         events.sort(key=lambda e: e['timestamp'])
@@ -337,6 +454,16 @@ def extract_trace_templates_with_evolution(
             # Process each sub-session as a separate trace
             for sub_idx, sub_session_events in enumerate(sub_sessions):
                 if not sub_session_events:
+                    continue
+                
+                matching_training_tools = [
+                    event for event in sub_session_events
+                    if event['event_type'] == 'tool_call'
+                    and (event['session_id'], event.get('_event_index')) in training_tool_call_ids
+                ]
+                if matching_training_tools:
+                    filtered_tool_call_count += len(matching_training_tools)
+                    filtered_templates += 1
                     continue
                 
                 turns = []
@@ -426,7 +553,9 @@ def extract_trace_templates_with_evolution(
     print(f"\n  ===== Trace Processing Summary =====")
     print(f"  Original sessions split into windows: {traces_split}")
     print(f"  Total sub-traces after splitting: {total_traces}")
-    print(f"  Templates extracted: {len(templates)}")
+    print(f"  Tool calls filtered (training split): {filtered_tool_call_count}")
+    print(f"  Templates skipped (training split): {filtered_templates}")
+    print(f"  Templates extracted after filter: {len(templates)}")
     print(f"  Window duration used: {window_duration_minutes} minutes ({window_duration_seconds}s)")
     print(f"  Note: Each window starts from the first LLM call of the original session")
     return templates
@@ -740,37 +869,43 @@ def _aggregate_predictions(predictions: List[Optional[ModelPrediction]], strateg
         }
 
 
-def compute_predicted_tool_duration(tool_predictions: List[Optional[ModelPrediction]], 
+def compute_predicted_tool_duration(tool_predictions: List[Optional[ModelPrediction]],
+                                   tool_names: List[str],
                                    persist_bin_avg: float = 30.0,
-                                   evict_bin_avg: float = 120.0) -> float:
+                                   evict_bin_avg: float = 120.0) -> Tuple[float, List[float]]:
     """
-    Compute total predicted duration by summing individual tool expected durations.
+    Compute predicted duration statistics for tool executions.
     
     For each tool:
-        expected_duration = P(persist) * persist_bin_avg + P(evict) * evict_bin_avg
-    
-    Total duration = sum of all individual expected durations
+        expected_duration = P(persist) * persist_mean(tool) + P(evict) * evict_mean(tool)
     
     Args:
         tool_predictions: List of ModelPrediction objects for each tool
-        persist_bin_avg: Average duration for persist bin (<60s), default 30s
-        evict_bin_avg: Average duration for evict bin (>=60s), default 120s
+        tool_names: Names for each tool prediction, used to select bucket means
+        persist_bin_avg: Fallback average duration for persist bin (<60s), default 30s
+        evict_bin_avg: Fallback average duration for evict bin (>=60s), default 120s
     
     Returns:
-        Total predicted duration in seconds
+        Tuple of (max_expected_duration, list_of_per_tool_expected_durations)
     """
-    total_duration = 0.0
+    per_tool_expected: List[float] = []
     
-    for pred in tool_predictions:
+    for idx, pred in enumerate(tool_predictions):
         if pred is not None:
             # Expected value for this specific tool
             persist_prob = pred.probabilities.get('persist', 0.0)
             evict_prob = pred.probabilities.get('evict', 0.0)
             
-            expected_duration = persist_prob * persist_bin_avg + evict_prob * evict_bin_avg
-            total_duration += expected_duration
+            tool_name = tool_names[idx] if idx < len(tool_names) else None
+            tool_means = TOOL_DURATION_MEANS.get(tool_name, {}) if tool_name else {}
+            persist_mean = tool_means.get('persist', GLOBAL_DURATION_MEANS.get('persist', persist_bin_avg))
+            evict_mean = tool_means.get('evict', GLOBAL_DURATION_MEANS.get('evict', evict_bin_avg))
+            
+            expected_duration = persist_prob * persist_mean + evict_prob * evict_mean
+            per_tool_expected.append(expected_duration)
     
-    return total_duration
+    max_duration = max(per_tool_expected) if per_tool_expected else 0.0
+    return max_duration, per_tool_expected
 
 
 def trajectory_to_dag_nodes(trajectory: RequestTrajectory, 
@@ -938,12 +1073,12 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
                     node.metadata["kv_reuse_expected_duration_s"] = 0.0
                     
             else:
-                # PREDICTION MODE: Sum of per-tool expected durations
-                # This is what's available in a realistic deployment
+                # PREDICTION MODE: Use per-tool expected durations from the model
                 if len(turn.tool_predictions) > 0:
                     # Use the new per-tool aggregation method
-                    predicted_duration = compute_predicted_tool_duration(
+                    predicted_duration, per_tool_expected = compute_predicted_tool_duration(
                         turn.tool_predictions,
+                        turn.tool_names,
                         persist_bin_avg=persist_bin_avg,
                         evict_bin_avg=evict_bin_avg
                     )
@@ -952,7 +1087,8 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
                     # Optional: Store for debugging
                     node.metadata["predicted_duration_breakdown"] = {
                         'num_tools': len(turn.tool_predictions),
-                        'total_predicted': predicted_duration,
+                        'max_predicted': predicted_duration,
+                        'per_tool_expected': per_tool_expected,
                         'persist_bin_avg': persist_bin_avg,
                         'evict_bin_avg': evict_bin_avg
                     }
@@ -970,7 +1106,7 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
 
 def generate_claude_trace_workload(
     num_requests: int,
-    claude_dataset_dir: str = "/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s",
+    claude_dataset_dir: str = "/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s_sessionwise",
     arrival_rate: float = 0.5,
     seed: int = 42,
     prefill_only: bool = False,
@@ -1124,7 +1260,7 @@ def generate_claude_trace_workload(
 
 def main():
     # Extract templates
-    templates = extract_trace_templates_with_evolution("/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s")
+    templates = extract_trace_templates_with_evolution("/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s_sessionwise")
     print(f"\nExtracted {len(templates)} templates total\n")
     
     # Show first template as example

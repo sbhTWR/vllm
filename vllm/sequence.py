@@ -713,8 +713,16 @@ class SequenceGroup:
         self.hints: SequenceGroupHints = None
         if user_args:
             self.user_id = user_args['id']
-            if 'hints' in user_args:
-                self.hints = SequenceGroupHints(**user_args['hints'])
+            # Filter to only include fields that SequenceGroupHints accepts
+            valid_hint_fields = {
+                'kv_reuse_expected_duration_s',
+                'avg_tool_call_time',
+                'num_tool_calls_observed',
+                'latest_model_forward_time'
+            }
+            filtered_hints = {k: v for k, v in user_args['hints'].items() 
+                            if k in valid_hint_fields}
+            self.hints = SequenceGroupHints(**filtered_hints)
         
         self._returning = False
 
