@@ -659,7 +659,7 @@ def instantiate_trajectory_from_template(
             tool_wait_time=turn_template.total_tool_time_with_overlap,
             tool_names=[t.name for t in turn_template.tool_executions],
             tool_predictions=tool_predictions,
-            tool_names=[t.name for t in turn_template.tool_executions],
+            # tool_names=[t.name for t in turn_template.tool_executions],
             tool_inputs=[t.tool_input for t in turn_template.tool_executions],
         )
         turns.append(turn_exec)
@@ -977,7 +977,24 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
             aggregated_pred = _aggregate_predictions(turn.tool_predictions, aggregation_strategy)
             if aggregated_pred:
                 llm_node.metadata["aggregated_tool_prediction"] = aggregated_pred
+
+            # add next tools to the metadata
+            tool_hints = []
+            for name, raw_input in zip(turn.tool_names, turn.tool_inputs):
+                if raw_input is None:
+                    serialized = ""
+                elif isinstance(raw_input, str):
+                    serialized = raw_input
+                else:
+                    serialized = json.dumps(raw_input, sort_keys=True)
+                tool_hints.append({
+                    "tool_name": name,
+                    "tool_args": serialized,
+                })
+
+                llm_node.metadata["next_tools"] = tool_hints
         else:
+            llm_node.metadata["next_tools"] = []
             # No tools - add dummy prediction
             if is_last_turn:
                 # Last turn without tools -> evict=1.0
@@ -1105,23 +1122,23 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
                 #     "tool_name": tool_name,
                 #     "tool_arguments": tool_arguments
                 # ]
-            tool_hints = []
-            for name, raw_input in zip(turn.tool_names, turn.tool_inputs):
-                if raw_input is None:
-                    serialized = ""
-                elif isinstance(raw_input, str):
-                    serialized = raw_input
-                else:
-                    serialized = json.dumps(raw_input, sort_keys=True)
-                tool_hints.append({
-                    "tool_name": name,
-                    "tool_args": serialized,
-                })
+            # tool_hints = []
+            # for name, raw_input in zip(turn.tool_names, turn.tool_inputs):
+            #     if raw_input is None:
+            #         serialized = ""
+            #     elif isinstance(raw_input, str):
+            #         serialized = raw_input
+            #     else:
+            #         serialized = json.dumps(raw_input, sort_keys=True)
+            #     tool_hints.append({
+            #         "tool_name": name,
+            #         "tool_args": serialized,
+            #     })
 
-            if tool_hints:
-                llm_node.metadata["next_tools"] = tool_hints
-            else:
-                llm_node.metadata["next_tools"] = []
+            # if tool_hints:
+            #     llm_node.metadata["next_tools"] = tool_hints
+            # else:
+            #     llm_node.metadata["next_tools"] = []
         
         # Tool nodes don't need kv_reuse hints
         for node in nodes:

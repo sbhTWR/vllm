@@ -109,8 +109,13 @@ class LLMCallNode(Node):
             # IMPORTANT: Wait for dependencies (e.g., previous turn) before executing
             await self.resolve_inputs(store)
             
+            payload = {
+                "id": store.agentid,
+                "type": "append",
+                "hints": self.metadata,
+            }
             print(f"[{store.agentid}] Turn {self.turn_idx}: Starting with {len(self.prompt_token_ids)} token IDs")
-            
+            print(f"[{store.agentid}] sending hints: {json.dumps(payload['hints'], indent=2)}")
             try:
                 response = await asyncio.to_thread(
                     client.completions.create,
@@ -140,8 +145,14 @@ class LLMCallNode(Node):
 
             # Append prompt to context
             store.append("user", user_msg)
+            payload = {
+                "id": store.agentid,
+                "type": "append",
+                "hints": self.metadata,
+            }
 
             print(f"[{store.agentid}] Starting OpenAI API call for {self.name}")
+            print(f"[{store.agentid}] sending hints: {json.dumps(payload['hints'], indent=2)}")
             
             try:
                 response = await asyncio.to_thread(

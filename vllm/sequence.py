@@ -727,12 +727,15 @@ class SequenceGroup:
                 'latest_model_forward_time',
                 'next_tools'
             }
+            # logger.info(f"[sequence_group] [hints] user_args['hints']={user_args['hints']}")
             filtered_hints = {k: v for k, v in user_args['hints'].items() 
                             if k in valid_hint_fields}
+            # logger.info(f"[sequence_group] [hints] filtered_hints={filtered_hints}")
             if 'next_tools' in filtered_hints:
                 filtered_hints['next_tools'] = [ToolUsageHint(**t) for t in filtered_hints['next_tools']]
+                # logger.info(f"[sequence_group] [hints] filtered_hints['next_tools']={filtered_hints['next_tools']}")
             self.hints = SequenceGroupHints(**filtered_hints)
-        
+            # logger.info(f"[sequence_group] [hints] self.hints={self.hints}")
         self._returning = False
 
     @property

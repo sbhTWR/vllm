@@ -1079,7 +1079,7 @@ class CacheConfig:
         cache_pin_ttl: Optional[int] = None,
         pinned_memory_frac: float = 0.25,
         enable_cache_heirarchy: bool = True,
-        predictor: Optional[PredictorConfig] = None,
+        predictor: Optional["PredictorConfig"] = None,
     ) -> None:
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization

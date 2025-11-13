@@ -8,7 +8,7 @@ from os import environ
 from subprocess import call, Popen, PIPE
 from lorem_text import lorem
 import multiprocessing
-
+import json
 import numpy as np
 # from workload import workload0, workload1
 # from elasticswap.test_cyclic_workload_v2 import generate_workload
@@ -168,6 +168,7 @@ def run_experiment(
     priority_queue_num_levels = 15,
     priority_queue_max_match_len = 200000,
     priority_queue_bucketing = "logarithmic",
+    predictor_config = None,
 
     timeout = 120,
 ):
@@ -225,6 +226,10 @@ def run_experiment(
                 "--ws-control-deadline", str(ws_control_deadline),
                 "--ws-size-fraction", str(ws_size_fraction),
             ]
+
+        if predictor_config:
+            vllm_args_list.append("--predictor")
+            vllm_args_list.append(json.dumps(predictor_config))
 
         if mpl is not None:
             vllm_args_list.append("--mpl")

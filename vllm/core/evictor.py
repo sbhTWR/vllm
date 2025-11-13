@@ -5,10 +5,12 @@ import heapq
 from abc import ABC, abstractmethod
 import time
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, TYPE_CHECKING
 from vllm.logger import init_logger
 from vllm.sequence import ToolUsageHint
-from vllm.config import PredictorConfig
+
+if TYPE_CHECKING:
+    from vllm.config import PredictorConfig
 
 logger = init_logger(__name__)
 
@@ -514,7 +516,7 @@ class TestPredictor(Predictor):
     def expected_tool_duration(self, tool_name, tool_args, last_access_duration_s):
         return self.value
 
-def make_predictor(predictor_config: PredictorConfig) -> Predictor:
+def make_predictor(predictor_config: "PredictorConfig") -> Predictor:
     if predictor_config.pred_type == "test":
         return TestPredictor(value=predictor_config.pred_params.get("value", 30.0))
     elif predictor_config.pred_type == "gittins":
@@ -532,6 +534,7 @@ class PredictiveEvictor(Evictor):
         self.free_table: dict[int, BlockMetaData] = {}
         self.heap: list[tuple[float, float, int, int]] = []  # (neg_expected, last_accessed, block_id, content_hash)
         self._last_rebuild = 0.0
+        self.swap_strategy = SwapStrategy.SWAP_PRED
 
     def __contains__(self, block_id):
         return block_id in self.free_table
@@ -586,6 +589,7 @@ class PredictiveEvictor(Evictor):
             age = now - block.last_accessed
             for hint in block.tool_hints:
                 expected_duration = self.predictor.expected_tool_duration(hint.tool_name, hint.tool_args, age)
+                logger.info(f"[predictive_evictor] expected_duration={expected_duration} for tool_name={hint.tool_name} tool_args={hint.tool_args} age={age}")
                 score += expected_duration
         block.cached_reuse_prob = score
         block.last_eval_walltime = now
@@ -602,3 +606,19 @@ class PredictiveEvictor(Evictor):
         heapq.heapify(rebuilt)
         self.heap = rebuilt
         self._last_rebuild = now
+    
+    def get_and_reset_swap_blocks(self):
+        # if self.swap_strategy == SwapStrategy.SWAP_LRU:
+        #     block_list= [(block_id, block) for block_id, block in self.free_table.items()]
+        #     self.free_table = {}
+        #     return block_list
+        # elif self.swap_strategy == SwapStrategy.PERSIST:
+        #     return []
+        # else:
+        #     raise ValueError("invalid swap strategy")
+
+        """
+        Removing this implementation in the favor of on-demand eviction 
+        strategy.
+        """
+        return []
