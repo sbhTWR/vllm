@@ -3,7 +3,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import List, Dict, Tuple, Optional, Set
+from typing import Any,List, Dict, Tuple, Optional, Set
 import numpy as np
 import glob
 import json
@@ -28,6 +28,7 @@ class ToolExecution:
     name: str
     start_timestamp: str
     duration: float  # seconds
+    tool_input: Dict[str, Any] = None
     model_prediction: Optional[ModelPrediction] = None
     
     @property
@@ -528,6 +529,7 @@ def extract_trace_templates_with_evolution(
                                 name=event['tool_name'],
                                 start_timestamp=event['timestamp'],
                                 duration=duration_seconds,
+                                tool_input=event.get('tool_input', {}),
                                 model_prediction=model_pred
                             )
                             current_tools.append(tool_exec)
@@ -568,6 +570,7 @@ class TurnExecution:
     target_output_tokens: int    # Expected output length
     tool_wait_time: float        # Time to wait after this turn (wall-clock)
     tool_names: List[str]        # Tool names for reference
+    tool_inputs: List[Any]  # Tool inputs for reference
     tool_predictions: List[Optional[ModelPrediction]]  # Model predictions for each tool
 
 @dataclass
@@ -655,7 +658,9 @@ def instantiate_trajectory_from_template(
             target_output_tokens=turn_template.output,
             tool_wait_time=turn_template.total_tool_time_with_overlap,
             tool_names=[t.name for t in turn_template.tool_executions],
-            tool_predictions=tool_predictions
+            tool_predictions=tool_predictions,
+            tool_names=[t.name for t in turn_template.tool_executions],
+            tool_inputs=[t.tool_input for t in turn_template.tool_executions],
         )
         turns.append(turn_exec)
         
@@ -1095,6 +1100,28 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
                 else:
                     # No tools - immediate reuse
                     node.metadata["kv_reuse_expected_duration_s"] = 0.0
+                
+                # node.metadata["next_tools"] = [
+                #     "tool_name": tool_name,
+                #     "tool_arguments": tool_arguments
+                # ]
+            tool_hints = []
+            for name, raw_input in zip(turn.tool_names, turn.tool_inputs):
+                if raw_input is None:
+                    serialized = ""
+                elif isinstance(raw_input, str):
+                    serialized = raw_input
+                else:
+                    serialized = json.dumps(raw_input, sort_keys=True)
+                tool_hints.append({
+                    "tool_name": name,
+                    "tool_args": serialized,
+                })
+
+            if tool_hints:
+                llm_node.metadata["next_tools"] = tool_hints
+            else:
+                llm_node.metadata["next_tools"] = []
         
         # Tool nodes don't need kv_reuse hints
         for node in nodes:

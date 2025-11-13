@@ -7,6 +7,8 @@ import time
 import random
 from typing import Dict, List, Tuple
 from vllm.logger import init_logger
+from vllm.sequence import ToolUsageHint
+from vllm.config import PredictorConfig
 
 logger = init_logger(__name__)
 
@@ -23,6 +25,7 @@ class SwapStrategy(enum.Enum):
     SWAP_RANDOM = enum.auto()
     SWAP_INFERCEPT = enum.auto()
     SWAP_MAV = enum.auto()
+    SWAP_PRED = enum.auto()
 
 class Evictor(ABC):
     """The Evictor subclasses should be used by the BlockAllocator class to
@@ -78,7 +81,8 @@ class BlockMetaData:
                  last_accessed: float, reuse_expected_time_s: float = None,
                  last_accessed_by_user: str = None,
                  avg_tool_call_time: float = None,
-                 latest_model_forward_time: float = None):
+                 latest_model_forward_time: float = None,
+                 tool_hints: List[ToolUsageHint] = None):
         self.content_hash = content_hash
         self.num_hashed_tokens = num_hashed_tokens
         self.last_accessed = last_accessed
@@ -87,6 +91,10 @@ class BlockMetaData:
 
         self.avg_tool_call_time = avg_tool_call_time
         self.latest_model_forward_time = latest_model_forward_time
+
+        self.tool_hints = tool_hints
+        self.cached_reuse_prob: float = None
+        self.last_eval_walltime: float = 0.0 
 
 
 class FreeBlockSwapScheduler:
@@ -248,7 +256,8 @@ class FreeBlockSwapScheduler:
             last_accessed_by_user: str = None,
             avg_tool_call_time: float = None,           # NEW
             latest_model_forward_time: float = None,    # NEW
-            num_blocks_in_hashless: int = None):        # NEW
+            num_blocks_in_hashless: int = None,
+            tool_hints: List[ToolUsageHint] = None):        # NEW
 
         self.free_table[block_id] = BlockMetaData(content_hash,
                                                   num_hashed_tokens,
@@ -487,3 +496,109 @@ def make_evictor(eviction_policy: EvictionPolicy) -> Evictor:
         return LRUEvictor()
     else:
         raise ValueError(f"Unknown cache eviction policy: {eviction_policy}")
+
+
+class Predictor(ABC):
+    @abstractmethod
+    def expected_tool_duration(self, tool_name: str, tool_args: str,
+                               last_access_duration_s: float) -> float:
+        """
+        Predicts expected time until reuse for the block associated with
+        (tool_name, tool_args) given its age (seconds since last access).
+        """
+
+class TestPredictor(Predictor):
+    def __init__(self, value: float = 30.0):
+        self.value = value
+
+    def expected_tool_duration(self, tool_name, tool_args, last_access_duration_s):
+        return self.value
+
+def make_predictor(predictor_config: PredictorConfig) -> Predictor:
+    if predictor_config.pred_type == "test":
+        return TestPredictor(value=predictor_config.pred_params.get("value", 30.0))
+    elif predictor_config.pred_type == "gittins":
+        raise NotImplementedError("gittins predictor not implemented")
+    elif predictor_config.pred_type == "classifier":
+        raise NotImplementedError("classifier predictor not implemented")
+    else:
+        raise ValueError(f"Unknown predictor type: {predictor_config.pred_type}")
+
+
+class PredictiveEvictor(Evictor):
+    def __init__(self, predictor: Predictor, score_ttl_s: float):
+        self.predictor = predictor
+        self.score_ttl_s = score_ttl_s
+        self.free_table: dict[int, BlockMetaData] = {}
+        self.heap: list[tuple[float, float, int, int]] = []  # (neg_expected, last_accessed, block_id, content_hash)
+        self._last_rebuild = 0.0
+
+    def __contains__(self, block_id):
+        return block_id in self.free_table
+
+    def add(self, block_id, content_hash, num_hashed_tokens, last_accessed,
+            reuse_expected_time_s=None, last_accessed_by_user=None,
+            avg_tool_call_time=None, latest_model_forward_time=None,
+            num_blocks_in_hashless=None,
+            tool_hints: List[ToolUsageHint] = None):
+        metadata = BlockMetaData(content_hash, num_hashed_tokens,
+                                 last_accessed, reuse_expected_time_s,
+                                 last_accessed_by_user, avg_tool_call_time,
+                                 latest_model_forward_time, tool_hints)
+        metadata.cached_reuse_prob = None
+        metadata.last_eval_walltime = 0.0
+        self.free_table[block_id] = metadata
+        score = self._score_block(metadata)
+        heapq.heappush(self.heap, (-score, last_accessed, block_id, content_hash))
+
+    def evict(self):
+        self._maybe_rebuild_heap()
+        while self.heap:
+            neg_score, last_accessed, block_id, content_hash = heapq.heappop(self.heap)
+            if block_id not in self.free_table:
+                continue
+            block = self.free_table[block_id]
+            if block.last_accessed != last_accessed:
+                continue  # stale entry
+            return block_id, block
+        raise ValueError("No usable cache memory left")
+
+    def update(self, block_id, last_accessed):
+        block = self.free_table[block_id]
+        block.last_accessed = last_accessed
+        block.cached_reuse_prob = None  # invalidate
+
+    def remove(self, block_id):
+        self.free_table.pop(block_id, None)
+
+    @property
+    def num_blocks(self):
+        return len(self.free_table)
+
+    def _score_block(self, block: BlockMetaData) -> float:
+        now = time.time()
+        if block.cached_reuse_prob is not None and (now - block.last_eval_walltime) < self.score_ttl_s:
+            return block.cached_reuse_prob
+        if block.tool_hints is None:
+            score = 0.0  # fallback
+        else:
+            score = 0.0
+            age = now - block.last_accessed
+            for hint in block.tool_hints:
+                expected_duration = self.predictor.expected_tool_duration(hint.tool_name, hint.tool_args, age)
+                score += expected_duration
+        block.cached_reuse_prob = score
+        block.last_eval_walltime = now
+        return score
+
+    def _maybe_rebuild_heap(self):
+        now = time.time()
+        if (now - self._last_rebuild) < self.score_ttl_s:
+            return
+        rebuilt = []
+        for block_id, block in self.free_table.items():
+            score = self._score_block(block)
+            rebuilt.append((-score, block.last_accessed, block_id, block.content_hash))
+        heapq.heapify(rebuilt)
+        self.heap = rebuilt
+        self._last_rebuild = now

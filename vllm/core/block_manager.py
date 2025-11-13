@@ -18,7 +18,7 @@ from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.sequence import Sequence, SequenceGroup, SequenceStatus
 from vllm.utils import Device, cdiv, chunk_list
 from vllm.core.evictor import SwapStrategy
-from vllm.config import SwapBudgetType, WsControlPolicy
+from vllm.config import SwapBudgetType, WsControlPolicy, PredictorConfig
 import time
 
 logger = init_logger(__name__)
@@ -114,6 +114,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         ws_control_deadline: float = 1.0,
         ws_size_fraction: float = 1.1,
         enable_eager_evict: bool = False,
+        predictor: Optional[PredictorConfig] = None,
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
@@ -152,6 +153,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             swap_budget_frac=swap_budget_frac,
             pinned_memory_frac=pinned_memory_frac,
             enable_cache_heirarchy=enable_cache_heirarchy,
+            predictor=predictor,
         )
 
         self.enable_ws_control = enable_ws_control

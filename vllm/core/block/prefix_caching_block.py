@@ -12,10 +12,12 @@ from vllm.core.block.interfaces import (Block, BlockAllocator, BlockId, Device,
                                         DeviceAwareBlockAllocator)
 from vllm.core.block.naive_block import (BlockPool, NaiveBlock,
                                          NaiveBlockAllocator)
-from vllm.core.evictor import EvictionPolicy, Evictor, make_evictor, SwapStrategy, FreeBlockSwapScheduler
-from vllm.config import SwapBudgetType
+from vllm.core.evictor import EvictionPolicy, Evictor, PredictiveEvictor, make_evictor, SwapStrategy, FreeBlockSwapScheduler
+from vllm.config import SwapBudgetType, PredictorConfig
 from vllm.logger import init_logger
 from vllm.sequence import Sequence
+from vllm.sequence import ToolUsageHint
+from vllm.core.evictor import make_predictor
 
 PrefixHash = int
 
@@ -31,11 +33,13 @@ class BlockTracker:
     """Used to track the status of a block inside the prefix caching allocator
     """
     __slots__ = ("active", "last_accessed", "computed", "reuse_expected_time_s", 
-                    "last_accessed_by_user", "avg_tool_call_time", "latest_model_forward_time")
+                    "last_accessed_by_user", "avg_tool_call_time", "latest_model_forward_time", 
+                    "tool_hints")
 
     def reset(self):
         self.last_accessed: float = _DEFAULT_LAST_ACCESSED_TIME
         self.computed: bool = False
+        self.tool_hints: Optional[List[ToolUsageHint]] = None
 
     def __init__(self):
         self.active: bool = False
@@ -43,6 +47,7 @@ class BlockTracker:
         self.last_accessed_by_user: str = None
         self.avg_tool_call_time: float = None
         self.latest_model_forward_time: float = None
+        self.tool_hints: Optional[List[ToolUsageHint]] = None
         self.reset()
 
     def enable(self):
@@ -787,6 +792,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         swap_budget_type: SwapBudgetType = SwapBudgetType.FIXED,
         swap_budget_frac: float = 0.5,
         pinned_memory_frac: float = 0.25,
+        predictor: Optional[PredictorConfig] = None,
     ):
         if block_ids is None:
             block_ids = range(num_blocks)
@@ -840,10 +846,15 @@ class ElasticSwapBlockAllocator(BlockAllocator):
 
         pinned_blocks_thresh = int(num_blocks * pinned_memory_frac)
 
-        self.swap_scheduler = FreeBlockSwapScheduler(
-            swap_strategy=swap_strategy,
-            pinned_blocks_thresh=pinned_blocks_thresh,
-            )
+        if swap_strategy == SwapStrategy.SWAP_PRED:
+            assert predictor is not None, "predictor must be provided when using SWAP_PRED"
+            self.predictor = make_predictor(predictor)
+            self.swap_scheduler = PredictiveEvictor(self.predictor, score_ttl_s=predictor.score_ttl_s)
+        else:
+            self.swap_scheduler = FreeBlockSwapScheduler(
+                swap_strategy=swap_strategy,
+                pinned_blocks_thresh=pinned_blocks_thresh,
+                )
 
         self.enable_swap_budget = enable_swap_budget
         self.swap_budget_type = swap_budget_type
@@ -892,7 +903,8 @@ class ElasticSwapBlockAllocator(BlockAllocator):
             self._block_tracker[block_id].reuse_expected_time_s,
             self._block_tracker[block_id].last_accessed_by_user,
             avg_tool_call_time=self._block_tracker[block_id].avg_tool_call_time,            
-            latest_model_forward_time=self._block_tracker[block_id].latest_model_forward_time, 
+            latest_model_forward_time=self._block_tracker[block_id].latest_model_forward_time,
+            tool_hints=self._block_tracker[block_id].tool_hints,
             num_blocks_in_hashless=num_blocks_in_hashless
         )
 
@@ -1069,6 +1081,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
                 block_tracker_obj.last_accessed = block_metadata.last_accessed
                 block_tracker_obj.last_accessed_by_user = block_metadata.last_accessed_by_user
                 block_tracker_obj.reuse_expected_time_s = block_metadata.reuse_expected_time_s
+                block_tracker_obj.tool_hints = block_metadata.tool_hints
 
     def _decr_refcount_cached_block(self, block: Block) -> None:
         # Ensure this is immutable/cached block
@@ -1102,6 +1115,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
                          self._block_tracker[block_id].last_accessed_by_user,
                         avg_tool_call_time=self._block_tracker[block_id].avg_tool_call_time,
                         latest_model_forward_time=self._block_tracker[block_id].latest_model_forward_time,
+                        tool_hints=self._block_tracker[block_id].tool_hints,
                         num_blocks_in_hashless=num_blocks_in_hashless)
 
         # Stop tracking the block

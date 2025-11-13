@@ -936,6 +936,7 @@ class Scheduler:
             ws_control_deadline=self.scheduler_config.ws_control_deadline,
             ws_size_fraction=self.scheduler_config.ws_size_fraction,
             enable_eager_evict=self.scheduler_config.enable_eager_evict,
+            predictor=self.cache_config.predictor,
             )
 
         self.waiting: Union[Deque[SequenceGroup], 'PrefixPriorityQueue']

@@ -6,7 +6,7 @@ from vllm.core.block.interfaces import (Block, BlockAllocator, BlockId,
                                         DeviceAwareBlockAllocator)
 from vllm.core.block.naive_block import NaiveBlock, NaiveBlockAllocator
 from vllm.core.block.prefix_caching_block import PrefixCachingBlockAllocator
-from vllm.config import SwapBudgetType
+from vllm.config import SwapBudgetType, PredictorConfig
 from vllm.platforms import current_platform
 from vllm.utils import Device
 from vllm.core.evictor import SwapStrategy
@@ -38,6 +38,7 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         swap_budget_frac: float = 0.5,
         pinned_memory_frac: float = 0.25,
         enable_cache_heirarchy: bool = True,
+        predictor: Optional[PredictorConfig] = None,
     ) -> DeviceAwareBlockAllocator:
         """Creates a CpuGpuBlockAllocator instance with the specified
         configuration.

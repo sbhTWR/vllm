@@ -24,7 +24,7 @@ from vllm.transformers_utils.utils import check_gguf_file
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import FlexibleArgumentParser, StoreBoolean
 from vllm.config import SwapBudgetType
-
+from vllm.config import PredictorConfig
 if TYPE_CHECKING:
     from vllm.transformers_utils.tokenizer_group import BaseTokenizerGroup
 
@@ -84,6 +84,17 @@ def nullable_kvs(val: str) -> Optional[Mapping[str, int]]:
 
     return out_dict
 
+def _parse_predictor(value: Optional[dict]) -> Optional[PredictorConfig]:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("--predictor expects a JSON object")
+    pred_type = value.get("type") or value.get("pred_type") or "test"
+    params = value.get("params") or value.get("pred_params") or {}
+    score_ttl = value.get("score_ttl_s", value.get("score_ttl", 10.0))
+    return PredictorConfig(pred_type=pred_type,
+                           pred_params=params,
+                           score_ttl_s=float(score_ttl))
 
 @dataclass
 class EngineArgs:
@@ -246,6 +257,8 @@ class EngineArgs:
     priority_queue_num_levels: int = 15
     priority_queue_max_match_len: int = 200000
     priority_queue_bucketing: str = "logarithmic"
+
+    predictor: Optional[PredictorConfig] = None
 
 
     def __post_init__(self):
@@ -487,7 +500,7 @@ class EngineArgs:
             '--swap-strategy',
             type=str,
             default='swap-hints',
-            choices=['persist', 'swap-lru', 'swap-hints', 'swap-random', 'swap-infercept', 'swap-mav'],
+            choices=['persist', 'swap-lru', 'swap-hints', 'swap-random', 'swap-infercept', 'swap-mav', 'swap-pred'],
             help='.')
         
         # parser.add_argument(
@@ -1156,6 +1169,14 @@ class EngineArgs:
             type=str,
             default=None,
             help='retrify log file name')
+        
+        parser.add_argument(
+            "--predictor",
+            type=json.loads,
+            default=None,
+            help="JSON dict with predictor settings, e.g. "
+                '`{"type": "test", "score_ttl_s": 0.1, "params": {"value": 45.0}}`'
+        )
 
         parser.add_argument(
             '--override-neuron-config',
@@ -1341,6 +1362,9 @@ class EngineArgs:
                            "has been disabled.")
             self.enable_prefix_caching = False
 
+        raw_pred = getattr(self, "predictor", None)
+        predictor_cfg = _parse_predictor(raw_pred)
+
         cache_config = CacheConfig(
             block_size=self.block_size,
             gpu_memory_utilization=self.gpu_memory_utilization,
@@ -1357,6 +1381,7 @@ class EngineArgs:
             cache_pin_ttl=self.cache_pin_ttl,
             pinned_memory_frac=self.pinned_memory_frac,
             enable_cache_heirarchy=self.enable_cache_heirarchy,
+            predictor=predictor_cfg,
         )
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,

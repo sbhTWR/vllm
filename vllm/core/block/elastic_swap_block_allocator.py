@@ -26,7 +26,7 @@ from vllm.core.block.naive_block import NaiveBlock, NaiveBlockAllocator
 from vllm.core.block.cpu_gpu_block_allocator import CpuGpuBlockAllocator
 from vllm.core.block.interfaces import Block, DeviceAwareBlockAllocator
 from vllm.core.block.prefix_caching_block import PrefixCachingBlockAllocator, ElasticSwapBlockAllocator, BlockTracker, assert_prefix_caching_block_or_none
-from vllm.config import SwapBudgetType
+from vllm.config import SwapBudgetType, PredictorConfig
 from vllm.sequence import SequenceGroup
 from vllm.utils import Device
 from vllm.logger import init_logger
@@ -71,6 +71,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         swap_budget_frac: float = 0.5,
         pinned_memory_frac: float = 0.25,
         enable_cache_heirarchy: bool = True,
+        predictor: Optional[PredictorConfig] = None,
     ) -> DeviceAwareBlockAllocator:
         """Initiate CpuOffloadingBlockAllocator. Similar to 
         CpuGpuBlockAllocator.create() but only support prefix caching
@@ -113,6 +114,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             swap_budget_type=swap_budget_type,
             swap_budget_frac=swap_budget_frac,
             pinned_memory_frac=pinned_memory_frac,
+            predictor=predictor,
         )
 
         cpu_allocator: BlockAllocator = NaiveBlockAllocator(
@@ -178,6 +180,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         last_accessed = block_metadata.last_accessed
         num_hashed_tokens = block_metadata.num_hashed_tokens
         content_hash = block_metadata.content_hash
+        score = block_metadata.cached_reuse_prob if block_metadata.cached_reuse_prob is not None else 0.0
 
         if self.swap_strategy == SwapStrategy.PERSIST or\
             self.swap_strategy == SwapStrategy.SWAP_LRU:
@@ -210,6 +213,11 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 self.priority_queue,
                 (priority, last_accessed, -num_hashed_tokens, block_id, content_hash))
         
+        elif self.swap_strategy == SwapStrategy.SWAP_PRED:
+            heapq.heappush(
+                self.priority_queue,
+                (-score, last_accessed, -num_hashed_tokens, block_id, content_hash))
+
         self._cleanup_cpu_swap_evictor_if_necessary()
     
     def remove_from_cpu_swap_evictor(self, block_id):
@@ -239,6 +247,23 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             
             elif self.swap_strategy == SwapStrategy.SWAP_RANDOM:
                 pass
+            elif self.swap_strategy == SwapStrategy.SWAP_PRED:
+                heapq.heappush(
+                    self.priority_queue,
+                    (-block.cached_reuse_prob, block.last_accessed, -block.num_hashed_tokens, 
+                     block_id, block.content_hash))
+            #TODO: These need fix! 
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
+                heapq.heappush(
+                    self.priority_queue,
+                    (-block.cached_reuse_prob, block.last_accessed, -block.num_hashed_tokens, 
+                     block_id, block.content_hash))
+            elif self.swap_strategy == SwapStrategy.SWAP_MAV:
+                heapq.heappush(
+                    self.priority_queue,
+                    (-block.cached_reuse_prob, block.last_accessed, -block.num_hashed_tokens, 
+                     block_id, block.content_hash))
 
         heapq.heapify(new_priority_queue)
         self.priority_queue = new_priority_queue
@@ -349,6 +374,10 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
             elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
                 priority, last_accessed, _, block_id, content_hash = heapq.heappop(
                 self.priority_queue)
+            
+            elif self.swap_strategy == SwapStrategy.SWAP_PRED:
+                score, last_accessed, _, block_id, content_hash = heapq.heappop(
+                self.priority_queue)
 
             if (block_id in self._cached_blocks_cpu and 
                 last_accessed == self._cached_blocks_cpu[block_id].last_accessed):
@@ -415,10 +444,12 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         )
 
         # get allocation context to see if hints are there 
-        if self.swap_strategy == SwapStrategy.SWAP_HINTS:
+        if self.swap_strategy == SwapStrategy.SWAP_HINTS\
+            or self.swap_strategy == SwapStrategy.SWAP_PRED:
             hints = self.allocation_ctx.seq_group.hints
-            assert hints is not None, "hints must be provided with SWAP_HINTS"
+            assert hints is not None, "hints must be provided with SWAP_HINTS or SWAP_PRED"
             block.reuse_expected_time_s = hints.kv_reuse_expected_duration_s
+            block.tool_hints = hints.next_tools
         
         elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
             hints = self.allocation_ctx.seq_group.hints
@@ -687,12 +718,13 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
         if replacement_was_needed:
             assert block_computed == True
         
-        if self.swap_strategy == SwapStrategy.SWAP_HINTS:
+        if self.swap_strategy == SwapStrategy.SWAP_HINTS\
+            or self.swap_strategy == SwapStrategy.SWAP_PRED:
             # update hints 
             hints = self.allocation_ctx.seq_group.hints
             user_id = self.allocation_ctx.seq_group.user_id
-            assert hints is not None, "hints must be initialized when using SWAP_HINTS"
-            assert user_id is not None, "user_id must be provided when using SWAP_HINTS"
+            assert hints is not None, "hints must be initialized when using SWAP_HINTS or SWAP_PRED"
+            assert user_id is not None, "user_id must be provided when using SWAP_HINTS or SWAP_PRED"
             block_tracker_obj = self._allocators[device]._block_tracker[block_id]
 
             if reuse:
@@ -725,6 +757,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 # logger.info("[elasticswap] block_id=%d hint<kv_reuse_expected_duration_s>=%f" %
                 #             (block_id, block_tracker_obj.reuse_expected_time_s))
                 block_tracker_obj.last_accessed_by_user = user_id
+            
+            block_tracker_obj.tool_hints = hints.next_tools
         
         elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
             hints = self.allocation_ctx.seq_group.hints
@@ -736,6 +770,7 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                 block_tracker_obj.avg_tool_call_time = hints.avg_tool_call_time
                 block_tracker_obj.latest_model_forward_time = hints.latest_model_forward_time
                 block_tracker_obj.last_accessed_by_user = user_id
+        
 
         # print('block_id (%d) -> %s' % (block_id, self.allocation_ctx.seq_group.user_id))
 

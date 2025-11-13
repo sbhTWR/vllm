@@ -398,6 +398,11 @@ class SequenceData(msgspec.Struct,
                 f"get_num_computed_tokens={self.get_num_computed_tokens()}")
 
 @dataclass
+class ToolUsageHint:
+    tool_name: str
+    tool_args: str
+
+@dataclass
 class SequenceGroupHints:
     # kv cache hints
     kv_reuse_expected_duration_s: float = None 
@@ -405,6 +410,7 @@ class SequenceGroupHints:
     avg_tool_call_time: float = None           # Average tool call duration from agent
     num_tool_calls_observed: int = None        # How many tool calls we've seen
     latest_model_forward_time: float = None    # Most recent model forward time
+    next_tools: Optional[List[ToolUsageHint]] = None
 
 class Sequence:
     """Stores the data, status, and block information of a sequence.
@@ -718,10 +724,13 @@ class SequenceGroup:
                 'kv_reuse_expected_duration_s',
                 'avg_tool_call_time',
                 'num_tool_calls_observed',
-                'latest_model_forward_time'
+                'latest_model_forward_time',
+                'next_tools'
             }
             filtered_hints = {k: v for k, v in user_args['hints'].items() 
                             if k in valid_hint_fields}
+            if 'next_tools' in filtered_hints:
+                filtered_hints['next_tools'] = [ToolUsageHint(**t) for t in filtered_hints['next_tools']]
             self.hints = SequenceGroupHints(**filtered_hints)
         
         self._returning = False

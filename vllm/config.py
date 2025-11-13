@@ -1079,6 +1079,7 @@ class CacheConfig:
         cache_pin_ttl: Optional[int] = None,
         pinned_memory_frac: float = 0.25,
         enable_cache_heirarchy: bool = True,
+        predictor: Optional[PredictorConfig] = None,
     ) -> None:
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -1095,6 +1096,7 @@ class CacheConfig:
         self.cache_pin_ttl = cache_pin_ttl
         self.pinned_memory_frac = pinned_memory_frac
         self.enable_cache_heirarchy = enable_cache_heirarchy
+        self.predictor = predictor
         self._verify_args()
         self._verify_cache_dtype()
         self._verify_prefix_caching()
@@ -1126,7 +1128,8 @@ class CacheConfig:
                 f"supported. Got {self.block_allocator}.")
 
         if self.swap_strategy not in [
-                "persist", "swap-lru", "swap-hints", "swap-random", "swap-infercept", "swap-mav"
+                "persist", "swap-lru", "swap-hints", "swap-random", "swap-infercept", "swap-mav",
+                "swap-pred"
         ]:
             raise ValueError(
                 "Only persist and swap_all is "
@@ -1145,6 +1148,8 @@ class CacheConfig:
             self.swap_strategy = SwapStrategy.SWAP_INFERCEPT
         elif self.swap_strategy == "swap-mav":
             self.swap_strategy = SwapStrategy.SWAP_MAV
+        elif self.swap_strategy == "swap-pred":
+            self.swap_strategy = SwapStrategy.SWAP_PRED
 
         if self.cache_pin_ttl == None:
             self.cache_pin_ttl = -1 
@@ -1489,6 +1494,22 @@ class WsControlPolicy(enum.Enum):
     WS_DEADLINE = enum.auto()
     WS_HINT = enum.auto()
 
+@dataclass
+class PredictorConfig:
+    """Configuration for the predictor."""
+    pred_type: str = "test"
+    pred_params: dict = field(default_factory=dict)
+    score_ttl_s: float = 10.0
+
+    def __post_init__(self):
+        if self.pred_type == "test":
+            pass
+        elif self.pred_type == "gittins":
+            pass
+        elif self.pred_type == "classifier":
+            pass
+        else:
+            raise ValueError("invalid predictor type %s" % self.pred_type)
 @dataclass
 class SchedulerConfig:
     """Scheduler configuration."""
