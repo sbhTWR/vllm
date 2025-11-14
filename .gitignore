@@ -44,6 +44,7 @@ elasticswap/toolcall_dataset_claude_annotated_60s/
 elasticswap/toolcall_dataset_claude_annotated_60s_sessionwise/
 elasticswap/training_split_tool_calls.json
 elasticswap/training_tool_calls_sessionwise.json
+elasticswap/models/
 
 
 .cache/

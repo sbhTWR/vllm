@@ -520,7 +520,8 @@ def make_predictor(predictor_config: "PredictorConfig") -> Predictor:
     if predictor_config.pred_type == "test":
         return TestPredictor(value=predictor_config.pred_params.get("value", 30.0))
     elif predictor_config.pred_type == "gittins":
-        raise NotImplementedError("gittins predictor not implemented")
+        from vllm.core.gittins_predictor import GittinsPredictor
+        return GittinsPredictor(model_path=predictor_config.pred_params.get("model_path", "gittins_model.pkl"))
     elif predictor_config.pred_type == "classifier":
         raise NotImplementedError("classifier predictor not implemented")
     else:
