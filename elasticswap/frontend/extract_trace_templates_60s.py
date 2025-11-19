@@ -10,6 +10,7 @@ import json
 from collections import defaultdict
 from dateutil import parser as date_parser
 
+
 TOOL_DURATION_MEANS: Dict[str, Dict[str, float]] = {}
 GLOBAL_DURATION_MEANS: Dict[str, float] = {
     'persist': 30.0,
@@ -271,6 +272,13 @@ def extract_trace_templates_with_evolution(
     
     print(f"Loading 60s-annotated traces from {claude_dataset_dir}...")
     print(f"Mapping: <60s -> persist, >=60s -> evict")
+
+    SKIP_TRAINING_FILTER = os.environ.get("SKIP_TRAINING_FILTER", "0") == "1"
+    if SKIP_TRAINING_FILTER:
+        training_tool_calls_path = None
+        print(f"  Skipping training tool call filtering")
+    else:
+        print(f"  Using training tool call filtering")
 
     # Load training tool call IDs to filter
     training_tool_call_ids: Set[Tuple[str, int]] = set()
@@ -919,7 +927,8 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
                                 aggregation_strategy: str = 'avg_probabilities',
                                 oracle: bool = True,
                                 persist_bin_avg: float = 30.0,
-                                evict_bin_avg: float = 120.0):
+                                evict_bin_avg: float = 120.0,
+                                rate_controller = None):
     """
     Convert a RequestTrajectory into a list of Node objects for DAG execution.
     
@@ -963,6 +972,7 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
             turn_idx=turn.turn_idx,
             llm_name=f"turn_{turn.turn_idx}",
             name=f"{trajectory.request_id}_llm_{turn.turn_idx}",
+            rate_controller=rate_controller
         )
         
         # Link to previous turn's tool nodes (if they exist)
@@ -1158,7 +1168,8 @@ def generate_claude_trace_workload(
     aggregation_strategy: str = 'avg_probabilities',
     oracle: bool = True,
     persist_bin_avg: float = 30.0,
-    evict_bin_avg: float = 120.0
+    evict_bin_avg: float = 120.0,
+    rate_controller = None
 ):
     """
     Generate workload from 60s-annotated Claude traces for use with pipeline.py.
@@ -1219,7 +1230,8 @@ def generate_claude_trace_workload(
             aggregation_strategy=aggregation_strategy,
             oracle=oracle,
             persist_bin_avg=persist_bin_avg,
-            evict_bin_avg=evict_bin_avg
+            evict_bin_avg=evict_bin_avg,
+            rate_controller=rate_controller
         )
         dags.append(dag)
         dag_names.append(traj.request_id)

@@ -91,10 +91,12 @@ def _parse_predictor(value: Optional[dict]) -> Optional[PredictorConfig]:
         raise ValueError("--predictor expects a JSON object")
     pred_type = value.get("type") or value.get("pred_type") or "test"
     params = value.get("params") or value.get("pred_params") or {}
+    heap_rebuild_interval = value.get("heap_rebuild_interval_s", value.get("heap_rebuild_interval", 10.0))
     score_ttl = value.get("score_ttl_s", value.get("score_ttl", 10.0))
     return PredictorConfig(pred_type=pred_type,
                            pred_params=params,
-                           score_ttl_s=float(score_ttl))
+                           score_ttl_s=float(score_ttl),
+                           heap_rebuild_interval_s=float(heap_rebuild_interval))
 
 @dataclass
 class EngineArgs:

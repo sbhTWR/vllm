@@ -849,7 +849,7 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         if swap_strategy == SwapStrategy.SWAP_PRED:
             assert predictor is not None, "predictor must be provided when using SWAP_PRED"
             self.predictor = make_predictor(predictor)
-            self.swap_scheduler = PredictiveEvictor(self.predictor, score_ttl_s=predictor.score_ttl_s)
+            self.swap_scheduler = PredictiveEvictor(self.predictor, score_ttl_s=predictor.score_ttl_s, heap_rebuild_interval_s=predictor.heap_rebuild_interval_s)
         else:
             self.swap_scheduler = FreeBlockSwapScheduler(
                 swap_strategy=swap_strategy,

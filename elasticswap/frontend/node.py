@@ -5,6 +5,8 @@ from typing import Dict, Any, Union, Callable, Optional
 from uuid import uuid4
 import httpx
 import asyncio
+# from executor import AdaptiveDAGRateController
+import time
 
 class ContextStore:
     def __init__(self, agentid: Optional[str] = None, 
@@ -76,6 +78,7 @@ class LLMCallNode(Node):
                  target_output_tokens: int = 128,     # NEW: Control output length
                  turn_idx: int = None,                 # NEW: For logging
                  llm_name: str = None, 
+                 rate_controller = None,
                  **kwargs):
         super().__init__(**kwargs)
         self.prompt_template = prompt_template
@@ -83,6 +86,7 @@ class LLMCallNode(Node):
         self.target_output_tokens = target_output_tokens
         self.turn_idx = turn_idx
         self.llm_name = llm_name
+        self.rate_controller = rate_controller
 
     async def execute(self, store: ContextStore):
         inputs = await self.resolve_inputs(store)
@@ -103,6 +107,7 @@ class LLMCallNode(Node):
                                     client: Optional[openai.OpenAI] = None):
         
         assert client is not None
+        start_time = time.time()
         
         # NEW: Support for raw token IDs
         if self.prompt_token_ids is not None:
@@ -130,8 +135,13 @@ class LLMCallNode(Node):
                     })
                 )
                 result_text = response.choices[0].text
-                print(f"[{store.agentid}] Turn {self.turn_idx}: Completed, output: {len(result_text)} chars")
+                completion_time = time.time()
+
+                # print(f"[{store.agentid}] Turn {self.turn_idx}: Completed, output: {len(result_text)} chars")
                 
+                if self.rate_controller and self.rate_controller.enable:
+                    self.rate_controller.record_llmcall_completion(completion_time)
+
             except Exception as e:
                 print(f"[{store.agentid}] Turn {self.turn_idx}: FAILED: {e}")
                 raise
@@ -167,12 +177,18 @@ class LLMCallNode(Node):
                         "hints": self.metadata
                     })
                 )
-                print(f"[{store.agentid}] OpenAI API call completed for {self.name}")
+
+                completion_time = time.time()
+                # print(f"[{store.agentid}] OpenAI API call completed for {self.name} in {completion_time - start_time} seconds")
+
             except Exception as e:
                 print(f"[{store.agentid}] OpenAI API call FAILED for {self.name}: {e}")
                 raise
 
             response = response.choices[0].message.content
+
+            if self.rate_controller and self.rate_controller.enable:
+                self.rate_controller.record_llmcall_completion(completion_time)
 
             # Append assistant reply
             store.append("assistant", response)

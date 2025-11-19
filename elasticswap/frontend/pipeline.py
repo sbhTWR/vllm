@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+from pickle import FALSE
 import random
 import shutil
 import time
@@ -11,7 +12,7 @@ from utils import run_experiment, ensure_dir
 # from extract_trace_templates import generate_claude_trace_workload
 from extract_trace_templates_60s import generate_claude_trace_workload
 # from extract_trace_templates_annotated import generate_claude_trace_workload_annotated
-from executor import AsyncDAGExecutor, MultiDAGExecutor, annotate_expected_durations
+from executor import AsyncDAGExecutor, MultiDAGExecutor, AdaptiveDAGRateController, annotate_expected_durations
 from node import Node, LLMCallNode, ToolCallNode, WhileLoopNode
 
 DEBUG = os.environ.get('DEBUG', '0') == '1'
@@ -383,34 +384,117 @@ async def run_dags_with_arrival_times(dags,
                                       dag_names=None,  # NEW: Optional custom names
                                       port=8000,
                                       model="Qwen/Qwen2.5-Coder-32B-Instruct",
-                                      wait_for_all_done=False):
+                                      wait_for_all_done=False,
+                                      enable_rate_controller=False,
+                                      initial_rate=1.0,
+                                      send_all_at_once=False):
     """
     Init multi executor 
     """
-    executor = MultiDAGExecutor(port=port, model=model)
+
+    if enable_rate_controller:
+        rate_controller = AdaptiveDAGRateController(
+            initial_rate=initial_rate,
+            min_rate=0.1,
+            max_rate=10.0,
+            adjustment_step=0.1,
+            observation_window=10.0,
+            enable=True
+        )
+    else:
+        rate_controller = None
+
+    executor = MultiDAGExecutor(port=port, model=model, rate_controller=rate_controller)
     # Start background executor loop
     executor_task = asyncio.create_task(executor.run_forever())
 
     try:
         agent_id = 0
-        for dag, arrival_time in zip(dags, arrival_times):
-            print("sleeping for %f seconds" % arrival_time)
-            # time.sleep(arrival_time)
-            await asyncio.sleep(arrival_time)
-            
-            # Use custom dag_name if provided, otherwise use agent_%d
-            if dag_names is not None:
-                dag_name = dag_names[agent_id]
-            else:
-                dag_name = "agent_%d" % agent_id
-            
-            print("submitting dag=%s" % dag_name)
-            try:
-                await executor.submit_dag(dag, dag_name)
-            except Exception as e:
-                print(f"Error submitting DAG: {e}")
+
+        if send_all_at_once:
+
+            print(f"Submitting all {len(dags)} DAGs at once")
+            submission_tasks = []
+            for dag in dags:
+                if dag_names is not None:
+                    dag_name = dag_names[agent_id]
+                else:
+                    dag_name = "agent_%d" % agent_id
                 
-            agent_id += 1 
+                print(f"submitting dag={dag_name}")
+                try:
+                    submission_tasks.append(executor.submit_dag(dag, dag_name))
+                except Exception as e:
+                    print(f"Error submitting DAG {dag_name}: {e}")
+                agent_id += 1
+
+            await asyncio.gather(*submission_tasks, return_exceptions=True)
+            print("All DAGs submitted, waiting for completion...")
+
+            executor.shutdown(drain=wait_for_all_done)
+            try:
+                await asyncio.shield(executor_task)
+            except asyncio.CancelledError:
+                if wait_for_all_done:
+                    print("Timeout reached, but waiting for drain to complete")
+
+                    while executor._drain_on_shutdown and (not executor.queue.empty()) or executor.pending_tasks:
+                        await asyncio.sleep(0.1)
+                    
+                    await executor_task
+                else:
+                    print("Drain completed, shutting down executor")
+                    executor.shutdown(drain=False)
+                    executor_task.cancel()
+                    print("Executor shutdown")
+                    try:
+                        await executor_task
+                    except asyncio.CancelledError:
+                        pass
+                
+                raise 
+            print("All finished DAGs")
+
+        elif enable_rate_controller:
+            for dag, _ in zip(dags, arrival_times):
+                # while not rate_controller.can_submit(time.time()):
+                #     await asyncio.sleep(0.1)
+                
+                if dag_names is not None:
+                    dag_name = dag_names[agent_id]
+                else:
+                    dag_name = "agent_%d" % agent_id
+                
+                stats = rate_controller.get_stats()
+                print(f"submitting dag={dag_name} at rate={rate_controller.current_rate:.2f} DAGs/s "
+                      f"(LLMCall throughput: {stats.get('llmcall_throughput', 0):.2f} calls/s)")
+                
+                try:
+                    await executor.submit_dag(dag, dag_name)
+                except Exception as e:
+                    print(f"Error submitting DAG: {e}")
+                
+                agent_id += 1
+
+        else:
+            for dag, arrival_time in zip(dags, arrival_times):
+                print("sleeping for %f seconds" % arrival_time)
+                # time.sleep(arrival_time)
+                await asyncio.sleep(arrival_time)
+                
+                # Use custom dag_name if provided, otherwise use agent_%d
+                if dag_names is not None:
+                    dag_name = dag_names[agent_id]
+                else:
+                    dag_name = "agent_%d" % agent_id
+                
+                print("submitting dag=%s" % dag_name)
+                try:
+                    await executor.submit_dag(dag, dag_name)
+                except Exception as e:
+                    print(f"Error submitting DAG: {e}")
+                    
+                agent_id += 1 
 
         executor.shutdown(drain=wait_for_all_done)
         # if wait_for_all_done:
@@ -607,7 +691,10 @@ def execute_workload_claude_traces_precomputed(workload,
                                               model="Qwen/Qwen2.5-Coder-32B-Instruct",
                                               wait_for_all_done=False,
                                               timeout=120,
-                                              results_dir=None):
+                                              results_dir=None,
+                                              enable_rate_controller=False,
+                                              initial_rate=1.0,
+                                              send_all_at_once=False):
     """
     Execute workload with pre-generated DAGs to avoid construction overhead
     """
@@ -649,7 +736,10 @@ def execute_workload_claude_traces_precomputed(workload,
         dag_names=dag_names,
         port=port,
         model=model,
-        wait_for_all_done=wait_for_all_done
+        wait_for_all_done=wait_for_all_done,
+        enable_rate_controller=enable_rate_controller,
+        initial_rate=initial_rate,
+        send_all_at_once=send_all_at_once
     ))
 
 def main():
@@ -704,7 +794,12 @@ def main():
     # rates = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    rates = [0.06, 0.07, 0.08, 0.09]
+    # rates = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # rates = [1.0]
+    # rates = [0.1]
+    # rates = [0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+    # rates = [0.3]
     # rates = [0.1]
     # rates = [0.01, 0.02, 0.03, 0.04]
     # rates = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
@@ -773,9 +868,12 @@ def main():
     priority_queue_bucketing = 'linear'
     window_duration_minutes = 2
     # predictor_config = {"pred_type": "test", "pred_params": {"value": 69.0}, "score_ttl_s": 10.0}
-    predictor_config = {"pred_type": "gittins", "pred_params": {"model_path": "/vllm/vllm/elasticswap/models/gittins_model.pkl"}, "score_ttl_s": 1.0}
+    predictor_config = {"pred_type": "gittins", "pred_params": {"model_path": "/vllm/vllm/elasticswap/models/gittins_model.pkl"}, "score_ttl_s": 1.0, "heap_rebuild_interval_s": 1.0}
+    os.environ["SKIP_TRAINING_FILTER"] = "1"
 
-
+    enable_rate_controller = False
+    initial_rate = 0.01
+    send_all_at_once = False
     # workloads = {}
     # for rate in rates:
 
@@ -872,7 +970,7 @@ def main():
             'VLLM_ALLOW_LONG_MAX_MODEL_LEN': '1'
         }
         
-        exp_name = "oracle-test-193-claude-num-rate-%d" % (int(rate * 100))
+        exp_name = "oracle-test-186-claude-num-rate-%d" % (int(rate * 100))
         results_path = "/vllm/vllm/elasticswap/results"
         abs_path = os.path.join("/vllm/vllm/elasticswap/results", exp_name)
 
@@ -886,7 +984,10 @@ def main():
                             model=model,
                             wait_for_all_done=wait_for_all_done,
                             timeout=timeout,
-                            results_dir=abs_path
+                            results_dir=abs_path,
+                            enable_rate_controller=enable_rate_controller,
+                            initial_rate=initial_rate,
+                            send_all_at_once=send_all_at_once
                     )
 
         exec_workload_fn_predicted = partial(execute_workload_claude_traces_precomputed,
@@ -895,7 +996,10 @@ def main():
                             model=model,
                             wait_for_all_done=wait_for_all_done,
                             timeout=timeout,
-                            results_dir=abs_path
+                            results_dir=abs_path,
+                            enable_rate_controller=enable_rate_controller,
+                            initial_rate=initial_rate,
+                            send_all_at_once=send_all_at_once
                     )
         # requests_meta = []
 
@@ -951,54 +1055,57 @@ def main():
                 for batch_size in batch_sizes:
                     for mpl in [None]:
                     # for mpl in [32, 64, 128, 256]:
-                        exps.append(
-                            {
-                                "execute_workload_fn": exec_workload_fn,
-                                'results_path': results_path,
-                                'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
-                                'config_name': "swap-pred",
-                                'env': env,
-                                'model': model,
-                                'rope_scaling': rope_scaling,
-                                'max_model_len': max_model_len,
-                                'tp_size': tp_size, 
-                                'pp_size': pp_size, 
-                                'swap_space': 1,
-                                'evict_token_thresh': 99999999999,
-                                'evict_token_count': 0,
-                                'enable_chunked_prefill': True,
-                                'fr_policy': "default",
-                                'swap_strategy': "swap-pred",
-                                'block_allocator': "CpuOffloadingBlockAllocator",
-                                'port': port,
-                                'enable_returning_queue': enable_returning_queue, 
-                                'returning_queue_sched_policy': "prio",
-                                'returning_queue_sort_freq': 1.0,
+                    # EXP #1
+                        # exps.append(
+                        #     {
+                        #         "execute_workload_fn": exec_workload_fn,
+                        #         'results_path': results_path,
+                        #         'exp_name': exp_name + '-batch-%d-mpl-%s' % (batch_size, str(mpl)),
+                        #         'config_name': "swap-pred",
+                        #         'env': env,
+                        #         'model': model,
+                        #         'rope_scaling': rope_scaling,
+                        #         'max_model_len': max_model_len,
+                        #         'tp_size': tp_size, 
+                        #         'pp_size': pp_size, 
+                        #         'swap_space': 1,
+                        #         'evict_token_thresh': 99999999999,
+                        #         'evict_token_count': 0,
+                        #         'enable_chunked_prefill': True,
+                        #         'fr_policy': "default",
+                        #         'swap_strategy': "swap-pred",
+                        #         'block_allocator': "CpuOffloadingBlockAllocator",
+                        #         'port': port,
+                        #         'enable_returning_queue': enable_returning_queue, 
+                        #         'returning_queue_sched_policy': "prio",
+                        #         'returning_queue_sort_freq': 1.0,
 
-                                'enable_prefix_priority_queue': enable_prefix_priority_queue,
-                                'priority_queue_num_levels': priority_queue_num_levels,
-                                'priority_queue_max_match_len': priority_queue_max_match_len,
-                                'priority_queue_bucketing': priority_queue_bucketing,
+                        #         'enable_prefix_priority_queue': enable_prefix_priority_queue,
+                        #         'priority_queue_num_levels': priority_queue_num_levels,
+                        #         'priority_queue_max_match_len': priority_queue_max_match_len,
+                        #         'priority_queue_bucketing': priority_queue_bucketing,
 
-                                'enable_swap_budget': False,
-                                'swap_budget_type': "fixed",
-                                'swap_budget_frac': 0.0,
-                                'enable_eager_evict': False,
-                                'cache_pin_ttl': cache_ttl_value,
-                                'pinned_memory_frac': pinned_memory_frac,
-                                'enable_cache_heirarchy': enable_cache_heirarchy,
-                                'max_num_seqs': batch_size,
-                                'max_num_batched_tokens': max_num_batched_tokens,
-                                'enable_ws_control': False,
-                                'ws_control_policy': "ws-hint",
-                                'ws_control_deadline': 6.0,
-                                'ws_size_fraction': 1.2,
-                                'mpl': mpl,
-                                'debug': DEBUG,
-                                'predictor_config': predictor_config,
-                                'timeout': timeout,
-                            }
-                        )
+                        #         'enable_swap_budget': False,
+                        #         'swap_budget_type': "fixed",
+                        #         'swap_budget_frac': 0.0,
+                        #         'enable_eager_evict': False,
+                        #         'cache_pin_ttl': cache_ttl_value,
+                        #         'pinned_memory_frac': pinned_memory_frac,
+                        #         'enable_cache_heirarchy': enable_cache_heirarchy,
+                        #         'max_num_seqs': batch_size,
+                        #         'max_num_batched_tokens': max_num_batched_tokens,
+                        #         'enable_ws_control': False,
+                        #         'ws_control_policy': "ws-hint",
+                        #         'ws_control_deadline': 6.0,
+                        #         'ws_size_fraction': 1.2,
+                        #         'mpl': mpl,
+                        #         'debug': DEBUG,
+                        #         'predictor_config': predictor_config,
+                        #         'timeout': timeout,
+                        #     }
+                        # )
+
+                        # EXP # 2 
                         exps.append(
                             {
                                 "execute_workload_fn": exec_workload_fn,
@@ -1137,6 +1244,8 @@ def main():
                         #     }
                         # )
 
+                        # EXP 3 
+
                         exps.append(
                             {
                                 "execute_workload_fn": exec_workload_fn,
@@ -1185,6 +1294,7 @@ def main():
                             }
                         )
                         
+                        # # EXP 4 
                         exps.append(
                             {
                                 "execute_workload_fn": exec_workload_fn,

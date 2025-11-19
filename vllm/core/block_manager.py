@@ -391,7 +391,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         # Remove the isinstance check and use the same logic for both allocators
         if isinstance(self.block_allocator, CpuOffloadingBlockAllocator):
-            logger.info("[elasticswap] using CpuOffloadingBlockAllocator with prefix caching support")
+            # logger.info("[elasticswap] using CpuOffloadingBlockAllocator with prefix caching support")
             num_required_blocks, num_cached_blocks = self.get_num_required_blocks_prefix_aware(
                 seq.get_token_ids(),
                 block_size=self.block_size,
@@ -399,7 +399,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             )
         elif hasattr(self.block_allocator, 'num_blocks_cached_for_token_ids'):
             # Calculate for CpuGpuBlockAllocator with prefix caching support
-            logger.info("[elasticswap] using CpuGpuBlockAllocator with prefix caching support")
+            # logger.info("[elasticswap] using CpuGpuBlockAllocator with prefix caching support")
             num_required_blocks = BlockTable.get_num_required_blocks(
                 seq.get_token_ids(),
                 block_size=self.block_size,
@@ -448,8 +448,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             else:
                 num_free_gpu_blocks = num_hashless_blocks + num_evictable_blocks - num_cached_blocks
             
-            # logger.info("[elasticswap] can_allocate [agent_id=%s]: num_free_gpu_blocks=%d num_hashless_blocks=%d num_evictable_blocks=%d num_cached_blocks=%d" 
-                                # % (seq_group.request_id, num_free_gpu_blocks, num_hashless_blocks, num_evictable_blocks, num_cached_blocks))
+            # logger.info("[elasticswap] can_allocate [agent_id=%s]: num_required_blocks=%d num_free_gpu_blocks=%d num_hashless_blocks=%d num_evictable_blocks=%d num_cached_blocks=%d" 
+                                # % (seq_group.request_id, num_required_blocks, num_free_gpu_blocks, num_hashless_blocks, num_evictable_blocks, num_cached_blocks))
             # num_free_gpu_blocks = num_hashless_blocks + num_evictable_blocks - num_cached_blocks
         else:
             num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(

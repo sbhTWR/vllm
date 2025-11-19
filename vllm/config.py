@@ -1500,6 +1500,7 @@ class PredictorConfig:
     pred_type: str = "test"
     pred_params: dict = field(default_factory=dict)
     score_ttl_s: float = 10.0
+    heap_rebuild_interval_s: float = 10.0
 
     def __post_init__(self):
         if self.pred_type == "test":

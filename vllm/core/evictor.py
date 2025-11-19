@@ -529,13 +529,18 @@ def make_predictor(predictor_config: "PredictorConfig") -> Predictor:
 
 
 class PredictiveEvictor(Evictor):
-    def __init__(self, predictor: Predictor, score_ttl_s: float):
+    def __init__(self, predictor: Predictor, score_ttl_s: float, heap_rebuild_interval_s: float = 10.0):
         self.predictor = predictor
         self.score_ttl_s = score_ttl_s
         self.free_table: dict[int, BlockMetaData] = {}
         self.heap: list[tuple[float, float, int, int]] = []  # (neg_expected, last_accessed, block_id, content_hash)
         self._last_rebuild = 0.0
         self.swap_strategy = SwapStrategy.SWAP_PRED
+        self._score_cache: Dict[
+            Tuple[str, str, str], Tuple[float, float]
+        ] = {}
+
+        self.heap_rebuild_interval_s = heap_rebuild_interval_s
 
     def __contains__(self, block_id):
         return block_id in self.free_table
@@ -555,7 +560,8 @@ class PredictiveEvictor(Evictor):
         score = self._score_block(metadata)
         heapq.heappush(self.heap, (-score, last_accessed, block_id, content_hash))
 
-    def evict(self):
+    def evict(self, cache_pin_ttl=None, force_evict=False):
+        # logger.info("[predictive_evictor] evicting block")
         self._maybe_rebuild_heap()
         while self.heap:
             neg_score, last_accessed, block_id, content_hash = heapq.heappop(self.heap)
@@ -564,7 +570,27 @@ class PredictiveEvictor(Evictor):
             block = self.free_table[block_id]
             if block.last_accessed != last_accessed:
                 continue  # stale entry
+            
+            # logger.info(f"[predictive_evictor] evicting block_id={block_id} with score={neg_score}")
+            self.free_table.pop(block_id)
             return block_id, block
+
+        # Heap drained but free_table still has entries: force rebuild once.
+        # logger.info("[predictive_evictor] heap drained but free_table still has entries: force rebuild once.")
+        if self.free_table:
+            self._last_rebuild = 0.0
+            self._maybe_rebuild_heap()
+            while self.heap:
+                neg_score, last_accessed, block_id, content_hash = heapq.heappop(self.heap)
+                if block_id not in self.free_table:
+                    continue
+                block = self.free_table[block_id]
+                if block.last_accessed != last_accessed:
+                    continue
+                self.free_table.pop(block_id)
+                return block_id, block
+
+        logger.info("[predictive_evictor] no usable cache memory left")
         raise ValueError("No usable cache memory left")
 
     def update(self, block_id, last_accessed):
@@ -583,23 +609,43 @@ class PredictiveEvictor(Evictor):
         now = time.time()
         if block.cached_reuse_prob is not None and (now - block.last_eval_walltime) < self.score_ttl_s:
             return block.cached_reuse_prob
-        if block.tool_hints is None:
-            score = 0.0  # fallback
+        if block.tool_hints is None or block.tool_hints == []:
+            score = 999999999.0  # fallback
+            # logger.info(f"[predictive_evictor] no tool hints found for block_id={block.last_accessed_by_user}")
         else:
             score = 0.0
             age = now - block.last_accessed
+            agent_id = block.last_accessed_by_user or ""
             for hint in block.tool_hints:
-                expected_duration = self.predictor.expected_tool_duration(hint.tool_name, hint.tool_args, age)
-                logger.info(f"[predictive_evictor] expected_duration={expected_duration} for tool_name={hint.tool_name} tool_args={hint.tool_args} age={age}")
+                key = (agent_id, hint.tool_name, hint.tool_args)
+                cached = self._score_cache.get(key)
+                if cached and (now - cached[1]) < self.score_ttl_s:
+                    expected_duration = cached[0]
+                else:
+                    expected_duration = self.predictor.expected_tool_duration(
+                        hint.tool_name, hint.tool_args, age
+                    )
+                    self._score_cache[key] = (expected_duration, now)
                 score += expected_duration
+
+            # OLD uncached version 
+            # age = now - block.last_accessed
+            # for hint in block.tool_hints:
+            #     expected_duration = self.predictor.expected_tool_duration(hint.tool_name, hint.tool_args, age)
+            #     logger.info(f"[predictive_evictor] expected_duration={expected_duration} for tool_name={hint.tool_name} tool_args={hint.tool_args} age={age}")
+            #     score += expected_duration
+
+
         block.cached_reuse_prob = score
         block.last_eval_walltime = now
         return score
 
     def _maybe_rebuild_heap(self):
+        # logger.info("[predictive_evictor] maybe_rebuild_heap")
         now = time.time()
-        if (now - self._last_rebuild) < self.score_ttl_s:
+        if (now - self._last_rebuild) < self.heap_rebuild_interval_s:
             return
+        # logger.info("[predictive_evictor] rebuilding heap")
         rebuilt = []
         for block_id, block in self.free_table.items():
             score = self._score_block(block)
@@ -607,6 +653,7 @@ class PredictiveEvictor(Evictor):
         heapq.heapify(rebuilt)
         self.heap = rebuilt
         self._last_rebuild = now
+        # logger.info("[predictive_evictor] heap rebuilt- took %s seconds" % (time.time() - now))
     
     def get_and_reset_swap_blocks(self):
         # if self.swap_strategy == SwapStrategy.SWAP_LRU:
