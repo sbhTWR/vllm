@@ -129,6 +129,7 @@ class FreeBlockSwapScheduler:
             block_id = random.choice(list(self.free_table.keys()))
             block_metadata = self.free_table[block_id]
             self.free_table.pop(block_id)
+            logger.info("[evictor] [swap_random] evicting block_id=%d", block_id)
             return block_id, block_metadata
 
 
@@ -161,6 +162,7 @@ class FreeBlockSwapScheduler:
 
                     block_metadata = self.free_table[block_id]
                     self.free_table.pop(block_id)
+                    logger.info("[evictor] [freeblock_swap_scheduler] [swap_lru] evicting block_id=%d", block_id)
                     return block_id, block_metadata
                 
             elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
@@ -172,8 +174,8 @@ class FreeBlockSwapScheduler:
                     
                     agent_id = self.free_table[block_id].last_accessed_by_user
                     delta = abs(reuse_expected_time) - time.time()
-                    logger.info("[evictor] [hint] delta=%s cache_pin_ttl=%s agent_id=%s" 
-                                            % (delta, cache_pin_ttl, agent_id))
+                    # logger.info("[evictor] [hint] delta=%s cache_pin_ttl=%s agent_id=%s" 
+                    #                         % (delta, cache_pin_ttl, agent_id))
                     if cache_pin_ttl\
                     and abs(reuse_expected_time) + 5 > time.time()\
                     and (delta < cache_pin_ttl):
@@ -188,6 +190,7 @@ class FreeBlockSwapScheduler:
 
                     block_metadata = self.free_table[block_id]
                     self.free_table.pop(block_id)
+                    logger.info("[evictor] [swap_hints] evicting block_id=%d", block_id)
                     return block_id, block_metadata
             
             elif self.swap_strategy == SwapStrategy.SWAP_INFERCEPT:
@@ -203,6 +206,7 @@ class FreeBlockSwapScheduler:
                     # logger.info(f"[preserve_discard_evict] Evicting block_id={block_id}, "
                     #         f"priority={priority:.3f}, agent={agent_id}")
                     
+                    logger.info("[evictor] [swap_infercept] evicting block_id=%d", block_id)
                     self.free_table.pop(block_id)
                     return block_id, block_metadata
             
@@ -217,7 +221,7 @@ class FreeBlockSwapScheduler:
                     agent_id = block_metadata.last_accessed_by_user
         
                     # Optional: Add logging
-                    logger.info(f"[swap_mav] Evicting block_id={block_id}, "
+                    logger.info(f"[evictor] [swap_mav] Evicting block_id={block_id}, "
                             f"next_reuse_expected_time={next_reuse_expected_time:.3f}s, agent={agent_id}")
 
                     self.free_table.pop(block_id)
@@ -449,7 +453,10 @@ class LRUEvictor(Evictor):
             if (block_id in self.free_table and
                     self.free_table[block_id].last_accessed == last_accessed):
                 self.free_table.pop(block_id)
+                logger.info("[evictor] [swap_lru] evicting block_id=%d", block_id)
                 return block_id, content_hash
+
+                
 
         raise ValueError("No usable cache memory left")
 
@@ -573,6 +580,7 @@ class PredictiveEvictor(Evictor):
             
             # logger.info(f"[predictive_evictor] evicting block_id={block_id} with score={neg_score}")
             self.free_table.pop(block_id)
+            logger.info("[evictor] [predictive_evictor] evicting block_id=%d", block_id)
             return block_id, block
 
         # Heap drained but free_table still has entries: force rebuild once.
@@ -588,6 +596,7 @@ class PredictiveEvictor(Evictor):
                 if block.last_accessed != last_accessed:
                     continue
                 self.free_table.pop(block_id)
+                logger.info("[evictor] [predictive_evictor] evicting block_id=%d", block_id)
                 return block_id, block
 
         logger.info("[predictive_evictor] no usable cache memory left")

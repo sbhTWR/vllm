@@ -14,6 +14,8 @@ import numpy as np
 # from elasticswap.test_cyclic_workload_v2 import generate_workload
 import shutil
 import traceback
+import csv
+import subprocess
 
 rng = np.random.default_rng(seed=42)
 
@@ -123,6 +125,121 @@ def ensure_dir(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
+class GPUMonitor:
+    """Background GPU utilization monitor using nvidia-smi"""
+    
+    def __init__(self, output_file, interval=1.0):
+        """
+        Args:
+            output_file: Path to CSV file to write GPU metrics
+            interval: Sampling interval in seconds
+        """
+        self.output_file = output_file
+        self.interval = interval
+        self.monitoring = False
+        self.monitor_thread = None
+        
+    def _monitor_loop(self):
+        """Main monitoring loop that runs in background thread"""
+        # Get list of GPUs to monitor
+        try:
+            result = subprocess.run(
+                ['nvidia-smi', '--list-gpus'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            num_gpus = len(result.stdout.strip().split('\n'))
+        except:
+            num_gpus = 1  # Default to 1 if we can't detect
+        
+        with open(self.output_file, 'w', newline='') as f:
+            # Write CSV header
+            fieldnames = ['timestamp', 'elapsed_seconds']
+            for gpu_id in range(num_gpus):
+                fieldnames.extend([
+                    f'gpu_{gpu_id}_utilization_percent',
+                    f'gpu_{gpu_id}_memory_used_mb',
+                    f'gpu_{gpu_id}_memory_total_mb',
+                    f'gpu_{gpu_id}_memory_utilization_percent',
+                    f'gpu_{gpu_id}_temperature_c',
+                    f'gpu_{gpu_id}_power_draw_w'
+                ])
+            
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            start_time = time.time()
+            
+            while self.monitoring:
+                try:
+                    # Query GPU metrics using nvidia-smi
+                    query = 'timestamp,utilization.gpu,memory.used,memory.total,utilization.memory,temperature.gpu,power.draw'
+                    result = subprocess.run(
+                        ['nvidia-smi', 
+                         '--query-gpu={}'.format(query),
+                         '--format=csv,noheader,nounits'],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=5
+                    )
+                    
+                    current_time = time.time()
+                    elapsed = current_time - start_time
+                    
+                    # Parse nvidia-smi output
+                    lines = result.stdout.strip().split('\n')
+                    row = {
+                        'timestamp': current_time,
+                        'elapsed_seconds': round(elapsed, 3)
+                    }
+                    
+                    for gpu_id, line in enumerate(lines):
+                        parts = [p.strip() for p in line.split(',')]
+                        if len(parts) >= 7:
+                            row[f'gpu_{gpu_id}_utilization_percent'] = parts[1] if parts[1] != '[N/A]' else '0'
+                            row[f'gpu_{gpu_id}_memory_used_mb'] = parts[2] if parts[2] != '[N/A]' else '0'
+                            row[f'gpu_{gpu_id}_memory_total_mb'] = parts[3] if parts[3] != '[N/A]' else '0'
+                            row[f'gpu_{gpu_id}_memory_utilization_percent'] = parts[4] if parts[4] != '[N/A]' else '0'
+                            row[f'gpu_{gpu_id}_temperature_c'] = parts[5] if parts[5] != '[N/A]' else '0'
+                            row[f'gpu_{gpu_id}_power_draw_w'] = parts[6] if parts[6] != '[N/A]' else '0'
+                    
+                    writer.writerow(row)
+                    f.flush()  # Ensure data is written immediately
+                    
+                except subprocess.TimeoutExpired:
+                    print("Warning: nvidia-smi query timed out")
+                except subprocess.CalledProcessError as e:
+                    print(f"Warning: nvidia-smi query failed: {e}")
+                except Exception as e:
+                    print(f"Warning: GPU monitoring error: {e}")
+                
+                # Sleep for interval, checking if we should stop
+                sleep_end = time.time() + self.interval
+                while time.time() < sleep_end and self.monitoring:
+                    time.sleep(0.1)
+    
+    def start(self):
+        """Start monitoring in background thread"""
+        if self.monitoring:
+            return
+        
+        self.monitoring = True
+        self.monitor_thread = Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+        print(f"Started GPU monitoring, writing to {self.output_file}")
+    
+    def stop(self):
+        """Stop monitoring"""
+        if not self.monitoring:
+            return
+        
+        self.monitoring = False
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=5)
+        print(f"Stopped GPU monitoring")
+
 def run_experiment(
     execute_workload_fn,
     results_path = "/vllm/vllm/elasticswap/results",
@@ -172,6 +289,7 @@ def run_experiment(
 
     timeout = 120,
 ):
+    gpu_monitor = None  # Initialize to None for cleanup in finally block
     try:
         retrify_log_file = "%s-%s-retrify-vllm-log.csv" % (exp_name, config_name)
         exp_path = os.path.join(results_path, exp_name)
@@ -264,6 +382,11 @@ def run_experiment(
         t_stderr_loop.start()
         print("Pipeline is ready")
         
+        # Start GPU monitoring
+        gpu_monitor_file = os.path.join(exp_path, "gpu_utilization.csv")
+        gpu_monitor = GPUMonitor(gpu_monitor_file, interval=1.0)
+        gpu_monitor.start()
+        
         """
         execute workloads
         """
@@ -292,6 +415,8 @@ def run_experiment(
         print('Done executing workloads, waiting for 60 seconds')
         time.sleep(60)
         
+        # Stop GPU monitoring
+        gpu_monitor.stop()
 
         p_stdout.terminate()
         p_stderr.terminate()
@@ -305,10 +430,16 @@ def run_experiment(
     finally:
         # Ensure cleanup happens even if there's an error
         try:
-            p_stdout.terminate()
-            p_stderr.terminate()
-            p.terminate()
-            p.wait()
+            # Stop GPU monitoring if it was started
+            if gpu_monitor is not None:
+                gpu_monitor.stop()
+            if 'p_stdout' in locals():
+                p_stdout.terminate()
+            if 'p_stderr' in locals():
+                p_stderr.terminate()
+            if 'p' in locals():
+                p.terminate()
+                p.wait()
         except:
             pass
         print("Pipeline cleanup complete")
