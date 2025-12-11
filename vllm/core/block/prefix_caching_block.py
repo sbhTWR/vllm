@@ -1053,6 +1053,8 @@ class ElasticSwapBlockAllocator(BlockAllocator):
                                             block_size=self._block_size,
                                             physical_block_id=block_id,
                                             extra_hash=extra_hash)
+        if hasattr(self, 'allocation_ctx') and self.allocation_ctx.seq_group and self.allocation_ctx.seq_group.user_id:
+            block.last_accessed_by_user = self.allocation_ctx.seq_group.user_id
         assert not block.computed
         assert block.content_hash is None
         return block
@@ -1366,6 +1368,10 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         assert block.block_id is not None
         assert self._refcounter.get(block.block_id) > 0
 
+        if block.last_accessed_by_user is None:
+            if hasattr(self, 'allocation_ctx') and self.allocation_ctx.seq_group and self.allocation_ctx.seq_group.user_id:
+                block.last_accessed_by_user = self.allocation_ctx.seq_group.user_id
+
         if block.content_hash not in self._cached_blocks:
             # No cached content hash => Set this block as cached.
             # Note that this block cannot be marked as computed yet
@@ -1450,6 +1456,10 @@ class ElasticSwapBlockAllocator(BlockAllocator):
         for block_id in block_ids:
             if self._block_tracker[block_id].active:
                 self._block_tracker[block_id].last_accessed = now
+                if hasattr(self, 'allocation_ctx') and self.allocation_ctx.seq_group and self.allocation_ctx.seq_group.user_id:
+                    if self._block_tracker[block_id].last_accessed_by_user is None:
+                        self._block_tracker[block_id].last_accessed_by_user = self.allocation_ctx.seq_group.user_id
+                        
             elif block_id in self.swap_scheduler:
                 self.swap_scheduler.update(block_id, now)
             else:

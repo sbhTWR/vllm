@@ -567,6 +567,8 @@ class CpuOffloadingBlockAllocator(CpuGpuBlockAllocator):
                                             block_size=gpu_allocator._block_size,
                                             physical_block_id=gpu_block_id,
                                             extra_hash=extra_hash)
+        if hasattr(gpu_allocator, 'allocation_ctx') and gpu_allocator.allocation_ctx.seq_group and gpu_allocator.allocation_ctx.seq_group.user_id:
+            block.last_accessed_by_user = self.allocation_ctx.seq_group.user_id                                    
         assert not block.computed
         assert block.content_hash is None
         return block

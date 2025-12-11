@@ -147,13 +147,22 @@ class GPUMonitor:
                 ['nvidia-smi', '--list-gpus'],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                timeout=10
             )
             num_gpus = len(result.stdout.strip().split('\n'))
-        except:
+        except Exception as e:
+            print(f"Warning: Failed to detect GPUs: {e}, defaulting to 1")
             num_gpus = 1  # Default to 1 if we can't detect
         
-        with open(self.output_file, 'w', newline='') as f:
+        try:
+            f = open(self.output_file, 'w', newline='')
+        except Exception as e:
+            print(f"Error: Failed to open GPU monitor file {self.output_file}: {e}")
+            self.monitoring = False
+            return
+        
+        try:
             # Write CSV header
             fieldnames = ['timestamp', 'elapsed_seconds']
             for gpu_id in range(num_gpus):
@@ -170,8 +179,10 @@ class GPUMonitor:
             writer.writeheader()
             
             start_time = time.time()
+            iteration_count = 0
             
             while self.monitoring:
+                iteration_count += 1
                 try:
                     # Query GPU metrics using nvidia-smi
                     query = 'timestamp,utilization.gpu,memory.used,memory.total,utilization.memory,temperature.gpu,power.draw'
@@ -219,6 +230,17 @@ class GPUMonitor:
                 sleep_end = time.time() + self.interval
                 while time.time() < sleep_end and self.monitoring:
                     time.sleep(0.1)
+        except Exception as e:
+            print(f"Fatal error in GPU monitoring loop after {iteration_count} iterations: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            try:
+                f.close()
+            except:
+                pass
+            elapsed_total = time.time() - start_time
+            print(f"GPU monitoring loop ended (collected {iteration_count} samples over {elapsed_total:.1f}s, monitoring={self.monitoring})")
     
     def start(self):
         """Start monitoring in background thread"""
@@ -295,6 +317,10 @@ def run_experiment(
         exp_path = os.path.join(results_path, exp_name)
         ensure_dir(exp_path)
         vllm_log_file = os.path.join(exp_path, retrify_log_file)
+        
+        # GPU utilization file with same naming pattern
+        gpu_utilization_file = "%s-%s-gpu-utilization.csv" % (exp_name, config_name)
+        gpu_monitor_file = os.path.join(exp_path, gpu_utilization_file)
 
         output_log_file = vllm_log_file.split(".")[0] 
         # kill anything on port 
@@ -382,8 +408,7 @@ def run_experiment(
         t_stderr_loop.start()
         print("Pipeline is ready")
         
-        # Start GPU monitoring
-        gpu_monitor_file = os.path.join(exp_path, "gpu_utilization.csv")
+        # Start GPU monitoring (gpu_monitor_file already defined above)
         gpu_monitor = GPUMonitor(gpu_monitor_file, interval=1.0)
         gpu_monitor.start()
         

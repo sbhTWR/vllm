@@ -166,6 +166,103 @@ class FreeBlockSwapScheduler:
                     return block_id, block_metadata
                 
             elif self.swap_strategy == SwapStrategy.SWAP_HINTS:
+                # collect all valid condidates from free table 
+
+                # collect all valid condidates from free table 
+                valid_candidates = []
+                for block_id, block_metadata in self.free_table.items():
+                    agent_id = block_metadata.last_accessed_by_user or "N/A"
+                    
+                    tool_call_info = "N/A"
+                    if block_metadata.tool_hints and len(block_metadata.tool_hints) > 0:
+                        paused_tool = block_metadata.tool_hints[0]
+                        tool_call_info = f"{paused_tool.tool_name}({paused_tool.tool_args}...)" if len(paused_tool.tool_args) > 50 else f"{paused_tool.tool_name}({paused_tool.tool_args})"
+                    
+                    # Calculate reuse_expected_time (same as in priority queue)
+                    reuse_expected_time_s = block_metadata.reuse_expected_time_s or 0.0
+                    reuse_expected_time = block_metadata.last_accessed + reuse_expected_time_s
+                    next_expected_reuse = reuse_expected_time
+                    time_until_reuse = (next_expected_reuse - time.time()) if next_expected_reuse else None
+
+                    valid_candidates.append({
+                        'block_id': block_id,
+                        'agent_id': agent_id,
+                        'tool_call_info': tool_call_info,
+                        'last_accessed': block_metadata.last_accessed,
+                        'next_expected_reuse': next_expected_reuse,
+                        'time_until_reuse': time_until_reuse,
+                        'reuse_expected_time': -reuse_expected_time,  # Negative for heap ordering
+                        'num_tool_hints': len(block_metadata.tool_hints) if block_metadata.tool_hints else 0
+                    })
+
+                # Aggregate by agent
+                from collections import defaultdict
+                agent_aggregates = defaultdict(lambda: {
+                    'num_blocks': 0,
+                    'best_priority': float('inf'),  # Most evictable (smallest priority value)
+                    'worst_priority': float('-inf'),
+                    'best_tool_call': "N/A",
+                    'best_block_id': None,
+                    'best_next_expected_reuse': None,
+                    'best_time_until_reuse': None,
+                    'earliest_last_accessed': float('inf'),
+                    'latest_last_accessed': 0.0
+                })
+
+                for candidate in valid_candidates:
+                    agent_id = candidate['agent_id']
+                    agg = agent_aggregates[agent_id]
+                    agg['num_blocks'] += 1
+                    
+                    # Track best (most evictable) and worst (least evictable) priorities
+                    if candidate['reuse_expected_time'] < agg['best_priority']:
+                        agg['best_priority'] = candidate['reuse_expected_time']
+                        agg['best_tool_call'] = candidate['tool_call_info']
+                        agg['best_block_id'] = candidate['block_id']
+                        agg['best_next_expected_reuse'] = candidate['next_expected_reuse']
+                        agg['best_time_until_reuse'] = candidate['time_until_reuse']
+                    
+                    if candidate['reuse_expected_time'] > agg['worst_priority']:
+                        agg['worst_priority'] = candidate['reuse_expected_time']
+                    
+                    # Track time range
+                    if candidate['last_accessed'] < agg['earliest_last_accessed']:
+                        agg['earliest_last_accessed'] = candidate['last_accessed']
+                    if candidate['last_accessed'] > agg['latest_last_accessed']:
+                        agg['latest_last_accessed'] = candidate['last_accessed']
+                
+                # Sort agents by best priority (most evictable first)
+                sorted_agents = sorted(
+                    agent_aggregates.items(),
+                    key=lambda x: x[1]['best_priority']
+                )
+
+                if sorted_agents:
+                    logger.info(
+                        "[evictor] [swap_hints] TOP_EVICTION_CANDIDATES_BY_AGENT: total_agents=%d, total_blocks=%d",
+                        len(agent_aggregates),
+                        len(valid_candidates)
+                    )
+
+                    for idx, (agent_id, agg) in enumerate(sorted_agents):
+                        logger.info(
+                            "[evictor] [swap_hints] AGENT_%d: agent_id=%s, num_blocks=%d, "
+                            "best_priority=%.3f, worst_priority=%.3f, best_block_id=%d, "
+                            "best_tool_call=%s, best_next_expected_reuse=%.3f, best_time_until_reuse=%.3f, "
+                            "last_accessed_range=[%.3f, %.3f]",
+                            idx + 1,
+                            agent_id,
+                            agg['num_blocks'],
+                            agg['best_priority'],
+                            agg['worst_priority'],
+                            agg['best_block_id'],
+                            agg['best_tool_call'],
+                            agg['best_next_expected_reuse'] or 0.0,
+                            agg['best_time_until_reuse'] or 0.0,
+                            agg['earliest_last_accessed'],
+                            agg['latest_last_accessed']
+                        )
+                    
                 reuse_expected_time, last_accessed, num_hashed_tokens, block_id, content_hash = heapq.heappop(
                     self.priority_queue
                 )
@@ -176,6 +273,20 @@ class FreeBlockSwapScheduler:
                     delta = abs(reuse_expected_time) - time.time()
                     # logger.info("[evictor] [hint] delta=%s cache_pin_ttl=%s agent_id=%s" 
                     #                         % (delta, cache_pin_ttl, agent_id))
+
+                    # Log why this one was chosen
+                    if sorted_agents:
+                        chosen_agent = next((a for a in sorted_agents if a[0] == agent_id), None)
+                        if chosen_agent:
+                            logger.info(
+                                "[swap_hints] CHOSEN_FOR_EVICTION: block_id=%d, agent_id=%s, tool_call_info=%s "
+                                "reason='best_priority=%.3f' (most evictable block from this agent)",
+                                block_id,
+                                agent_id or "N/A",
+                                chosen_agent[1]['best_tool_call'],
+                                reuse_expected_time
+                            )
+
                     if cache_pin_ttl\
                     and abs(reuse_expected_time) + 5 > time.time()\
                     and (delta < cache_pin_ttl):
@@ -271,7 +382,8 @@ class FreeBlockSwapScheduler:
                                                   reuse_expected_time_s,
                                                   last_accessed_by_user,
                                                   avg_tool_call_time,
-                                                  latest_model_forward_time)
+                                                  latest_model_forward_time,
+                                                  tool_hints=tool_hints)
 
         # logger.info("[elasticswap] adding block_id=%d to swap scheduler" % block_id)
         # add to heap depending upon the strategy
@@ -570,6 +682,126 @@ class PredictiveEvictor(Evictor):
     def evict(self, cache_pin_ttl=None, force_evict=False):
         # logger.info("[predictive_evictor] evicting block")
         self._maybe_rebuild_heap()
+
+        # Collect all valid candidates from free_table
+        valid_candidates = []
+        for block_id, block in self.free_table.items():
+            agent_id = block.last_accessed_by_user or "N/A"
+            
+            tool_call_info = "N/A"
+            if block.tool_hints and len(block.tool_hints) > 0:
+                paused_tool = block.tool_hints[0]
+                tool_call_info = f"{paused_tool.tool_name}({paused_tool.tool_args[:50]}...)" if len(paused_tool.tool_args) > 50 else f"{paused_tool.tool_name}({paused_tool.tool_args})"
+            
+            # Calculate score (same as in heap)
+            score = self._score_block(block)
+            neg_score = -score
+            next_expected_reuse = block.last_accessed + score if score < 999999999.0 else None
+            time_until_reuse = (next_expected_reuse - time.time()) if next_expected_reuse else None
+
+            valid_candidates.append({
+                'block_id': block_id,
+                'agent_id': agent_id,
+                'tool_call_info': tool_call_info,
+                'last_accessed': block.last_accessed,
+                'next_expected_reuse': next_expected_reuse,
+                'time_until_reuse': time_until_reuse,
+                'score': score,
+                'neg_score': neg_score,
+                'num_tool_hints': len(block.tool_hints) if block.tool_hints else 0,
+                'kv_reuse_expected_duration_s': block.reuse_expected_time_s if block.reuse_expected_time_s is not None else 0.0,
+                'kv_reuse_expected_time': (block.reuse_expected_time_s + block.last_accessed) if block.reuse_expected_time_s is not None else 0.0
+            })
+
+        # Aggregate by agent
+        from collections import defaultdict
+        agent_aggregates = defaultdict(lambda: {
+            'num_blocks': 0,
+            'best_priority': float('inf'),  # Most evictable (smallest neg_score)
+            'worst_priority': float('-inf'),
+            'best_tool_call': "N/A",
+            'best_block_id': None,
+            'best_next_expected_reuse': None,
+            'best_time_until_reuse': None,
+            'best_score': None,
+            'earliest_last_accessed': float('inf'),
+            'latest_last_accessed': 0.0,
+            'earliest_kv_reuse_expected_duration_s': float('inf'),
+            'earliest_kv_reuse_expected_time': float('inf'),
+            'latest_kv_reuse_expected_duration_s': 0.0,
+            'latest_kv_reuse_expected_time': 0.0,
+        })
+
+        for candidate in valid_candidates:
+            agent_id = candidate['agent_id']
+            agg = agent_aggregates[agent_id]
+            agg['num_blocks'] += 1
+            
+            # Track best (most evictable) and worst (least evictable) priorities
+            if candidate['neg_score'] < agg['best_priority']:
+                agg['best_priority'] = candidate['neg_score']
+                agg['best_tool_call'] = candidate['tool_call_info']
+                agg['best_block_id'] = candidate['block_id']
+                agg['best_next_expected_reuse'] = candidate['next_expected_reuse']
+                agg['best_time_until_reuse'] = candidate['time_until_reuse']
+                agg['best_score'] = candidate['score']
+            
+            if candidate['neg_score'] > agg['worst_priority']:
+                agg['worst_priority'] = candidate['neg_score']
+
+            # Track time range
+            if candidate['last_accessed'] < agg['earliest_last_accessed']:
+                agg['earliest_last_accessed'] = candidate['last_accessed']
+            if candidate['last_accessed'] > agg['latest_last_accessed']:
+                agg['latest_last_accessed'] = candidate['last_accessed']
+            
+            if candidate['kv_reuse_expected_duration_s'] < agg['earliest_kv_reuse_expected_duration_s']:
+                agg['earliest_kv_reuse_expected_duration_s'] = candidate['kv_reuse_expected_duration_s']
+            if candidate['kv_reuse_expected_duration_s'] > agg['latest_kv_reuse_expected_duration_s']:
+                agg['latest_kv_reuse_expected_duration_s'] = candidate['kv_reuse_expected_duration_s']
+            if candidate['kv_reuse_expected_time'] < agg['earliest_kv_reuse_expected_time']:
+                agg['earliest_kv_reuse_expected_time'] = candidate['kv_reuse_expected_time']
+            if candidate['kv_reuse_expected_time'] > agg['latest_kv_reuse_expected_time']:
+                agg['latest_kv_reuse_expected_time'] = candidate['kv_reuse_expected_time']
+
+        # Sort agents by best priority (most evictable first)
+        sorted_agents = sorted(
+            agent_aggregates.items(),
+            key=lambda x: (x[1]['best_priority'], x[1]['earliest_last_accessed'])
+        )  
+
+        # Log top 10 agents
+        if sorted_agents:
+            logger.info(
+                "[evictor] [swap_pred] TOP_EVICTION_CANDIDATES_BY_AGENT: total_agents=%d, total_blocks=%d",
+                len(agent_aggregates),
+                len(valid_candidates)
+            )
+            for idx, (agent_id, agg) in enumerate(sorted_agents):
+                logger.info(
+                    "[evictor] [swap_pred] AGENT_%d: agent_id=%s, num_blocks=%d, "
+                    "best_priority=%.3f, worst_priority=%.3f, best_block_id=%d, "
+                    "best_tool_call=%s, best_score=%.3f, best_next_expected_reuse=%.3f, "
+                    "best_time_until_reuse=%.3f, last_accessed_range=[%.3f, %.3f], "
+                    "kv_reuse_expected_duration_s_range=[%.3f, %.3f], kv_reuse_expected_time_range=[%.3f, %.3f]",
+                    idx + 1,
+                    agent_id,
+                    agg['num_blocks'],
+                    agg['best_priority'],
+                    agg['worst_priority'],
+                    agg['best_block_id'],
+                    agg['best_tool_call'],
+                    agg['best_score'] or 0.0,
+                    agg['best_next_expected_reuse'] or 0.0,
+                    agg['best_time_until_reuse'] or 0.0,
+                    agg['earliest_last_accessed'],
+                    agg['latest_last_accessed'],
+                    agg['earliest_kv_reuse_expected_duration_s'],
+                    agg['latest_kv_reuse_expected_duration_s'],
+                    agg['earliest_kv_reuse_expected_time'],
+                    agg['latest_kv_reuse_expected_time']
+                )
+        # Now proceed with normal eviction
         while self.heap:
             neg_score, last_accessed, block_id, content_hash = heapq.heappop(self.heap)
             if block_id not in self.free_table:
@@ -577,6 +809,25 @@ class PredictiveEvictor(Evictor):
             block = self.free_table[block_id]
             if block.last_accessed != last_accessed:
                 continue  # stale entry
+            
+            # Log why this one was chosen
+            if sorted_agents:
+                agent_id = block.last_accessed_by_user or "N/A"
+                chosen_agent = next((a for a in sorted_agents if a[0] == agent_id), None)
+                if chosen_agent:
+                    logger.info(
+                        "[swap_pred] CHOSEN_FOR_EVICTION: block_id=%d, agent_id=%s, tool_call_info=%s "
+                        "reason='best_priority=%.3f' (most evictable block from this agent, score=%.3f) "
+                        "kv_reuse_expected_duration_s=%.3f, kv_reuse_expected_time=%.3f",
+                        block_id,
+                        agent_id,
+                        chosen_agent[1]['best_tool_call'],
+                        neg_score,
+                        -neg_score,
+                        block.reuse_expected_time_s or 0.0,
+                        (block.reuse_expected_time_s + block.last_accessed) if block.reuse_expected_time_s is not None else 0.0
+                    )
+        
             
             # logger.info(f"[predictive_evictor] evicting block_id={block_id} with score={neg_score}")
             self.free_table.pop(block_id)
@@ -588,6 +839,118 @@ class PredictiveEvictor(Evictor):
         if self.free_table:
             self._last_rebuild = 0.0
             self._maybe_rebuild_heap()
+
+            # Collect candidates again for the rebuilt heap
+            valid_candidates = []
+            for block_id, block in self.free_table.items():
+                agent_id = block.last_accessed_by_user or "N/A"
+                
+                tool_call_info = "N/A"
+                if block.tool_hints and len(block.tool_hints) > 0:
+                    paused_tool = block.tool_hints[0]
+                    tool_call_info = f"{paused_tool.tool_name}({paused_tool.tool_args}...)" if len(paused_tool.tool_args) > 50 else f"{paused_tool.tool_name}({paused_tool.tool_args})"
+                
+                score = self._score_block(block)
+                neg_score = -score
+                next_expected_reuse = block.last_accessed + score if score < 999999999.0 else None
+                time_until_reuse = (next_expected_reuse - time.time()) if next_expected_reuse else None
+                valid_candidates.append({
+                    'block_id': block_id,
+                    'agent_id': agent_id,
+                    'tool_call_info': tool_call_info,
+                    'last_accessed': block.last_accessed,
+                    'next_expected_reuse': next_expected_reuse,
+                    'time_until_reuse': time_until_reuse,
+                    'score': score,
+                    'neg_score': neg_score,
+                    'num_tool_hints': len(block.tool_hints) if block.tool_hints else 0,
+                    'kv_reuse_expected_duration_s': block.reuse_expected_time_s if block.reuse_expected_time_s is not None else 0.0,
+                    'kv_reuse_expected_time': (block.reuse_expected_time_s + block.last_accessed) if block.reuse_expected_time_s is not None else 0.0
+                })
+
+            # Aggregate by agent (same as above)
+            agent_aggregates = defaultdict(lambda: {
+                'num_blocks': 0,
+                'best_priority': float('inf'),
+                'worst_priority': float('-inf'),
+                'best_tool_call': "N/A",
+                'best_block_id': None,
+                'best_next_expected_reuse': None,
+                'best_time_until_reuse': None,
+                'best_score': None,
+                'earliest_last_accessed': float('inf'),
+                'latest_last_accessed': 0.0,
+                'earliest_kv_reuse_expected_duration_s': float('inf'),
+                'earliest_kv_reuse_expected_time': float('inf'),
+                'latest_kv_reuse_expected_duration_s': 0.0,
+                'latest_kv_reuse_expected_time': 0.0,
+            })  
+
+            for candidate in valid_candidates:
+                agent_id = candidate['agent_id']
+                agg = agent_aggregates[agent_id]
+                agg['num_blocks'] += 1
+                
+                if candidate['neg_score'] < agg['best_priority']:
+                    agg['best_priority'] = candidate['neg_score']
+                    agg['best_tool_call'] = candidate['tool_call_info']
+                    agg['best_block_id'] = candidate['block_id']
+                    agg['best_next_expected_reuse'] = candidate['next_expected_reuse']
+                    agg['best_time_until_reuse'] = candidate['time_until_reuse']
+                    agg['best_score'] = candidate['score']
+                
+                if candidate['neg_score'] > agg['worst_priority']:
+                    agg['worst_priority'] = candidate['neg_score']
+                
+                if candidate['last_accessed'] < agg['earliest_last_accessed']:
+                    agg['earliest_last_accessed'] = candidate['last_accessed']
+                if candidate['last_accessed'] > agg['latest_last_accessed']:
+                    agg['latest_last_accessed'] = candidate['last_accessed']
+                
+                if candidate['kv_reuse_expected_duration_s'] < agg['earliest_kv_reuse_expected_duration_s']:
+                    agg['earliest_kv_reuse_expected_duration_s'] = candidate['kv_reuse_expected_duration_s']
+                if candidate['kv_reuse_expected_duration_s'] > agg['latest_kv_reuse_expected_duration_s']:
+                    agg['latest_kv_reuse_expected_duration_s'] = candidate['kv_reuse_expected_duration_s']
+                if candidate['kv_reuse_expected_time'] < agg['earliest_kv_reuse_expected_time']:
+                    agg['earliest_kv_reuse_expected_time'] = candidate['kv_reuse_expected_time']
+                if candidate['kv_reuse_expected_time'] > agg['latest_kv_reuse_expected_time']:
+                    agg['latest_kv_reuse_expected_time'] = candidate['kv_reuse_expected_time']
+            sorted_agents = sorted(
+                agent_aggregates.items(),
+                key=lambda x: (x[1]['best_priority'], x[1]['earliest_last_accessed'])
+            )
+
+            if sorted_agents:
+                logger.info(
+                    "[evictor] [swap_pred] TOP_EVICTION_CANDIDATES_BY_AGENT (after rebuild): total_agents=%d, total_blocks=%d",
+                    len(agent_aggregates),
+                    len(valid_candidates)
+                )
+                for idx, (agent_id, agg) in enumerate(sorted_agents):
+                    logger.info(
+                        "[evictor] [swap_pred] AGENT_%d: agent_id=%s, num_blocks=%d, "
+                        "best_priority=%.3f, worst_priority=%.3f, best_block_id=%d, "
+                        "best_tool_call=%s, best_score=%.3f, best_next_expected_reuse=%.3f, "
+                        "best_time_until_reuse=%.3f, last_accessed_range=[%.3f, %.3f], "
+                        "kv_reuse_expected_duration_s_range=[%.3f, %.3f], kv_reuse_expected_time_range=[%.3f, %.3f]",
+                        idx + 1,
+                        agent_id,
+                        agg['num_blocks'],
+                        agg['best_priority'],
+                        agg['worst_priority'],
+                        agg['best_block_id'],
+                        agg['best_tool_call'],
+                        agg['best_score'] or 0.0,
+                        agg['best_next_expected_reuse'] or 0.0,
+                        agg['best_time_until_reuse'] or 0.0,
+                        agg['earliest_last_accessed'],
+                        agg['latest_last_accessed'],
+                        agg['earliest_kv_reuse_expected_duration_s'],
+                        agg['latest_kv_reuse_expected_duration_s'],
+                        agg['earliest_kv_reuse_expected_time'],
+                        agg['latest_kv_reuse_expected_time']
+                    )
+
             while self.heap:
                 neg_score, last_accessed, block_id, content_hash = heapq.heappop(self.heap)
                 if block_id not in self.free_table:
@@ -595,6 +958,24 @@ class PredictiveEvictor(Evictor):
                 block = self.free_table[block_id]
                 if block.last_accessed != last_accessed:
                     continue
+                
+                # Log why this one was chosen
+                if sorted_agents:
+                    agent_id = block.last_accessed_by_user or "N/A"
+                    chosen_agent = next((a for a in sorted_agents if a[0] == agent_id), None)
+                    if chosen_agent:
+                        logger.info(
+                            "[swap_pred] CHOSEN_FOR_EVICTION: block_id=%d, agent_id=%s, tool_call_info=%s "
+                            "reason='best_priority=%.3f' (most evictable block from this agent, score=%.3f) "
+                            "kv_reuse_expected_duration_s=%.3f, kv_reuse_expected_time=%.3f",
+                            block_id,
+                            agent_id,
+                            chosen_agent[1]['best_tool_call'],
+                            neg_score,
+                            -neg_score,
+                            block.reuse_expected_time_s or 0.0,
+                            (block.reuse_expected_time_s + block.last_accessed) if block.reuse_expected_time_s is not None else 0.0
+                        )
                 self.free_table.pop(block_id)
                 logger.info("[evictor] [predictive_evictor] evicting block_id=%d", block_id)
                 return block_id, block
@@ -618,6 +999,15 @@ class PredictiveEvictor(Evictor):
         now = time.time()
         if block.cached_reuse_prob is not None and (now - block.last_eval_walltime) < self.score_ttl_s:
             return block.cached_reuse_prob
+        
+        # Prioritize eviction for blocks with kv_reuse_expected_duration_s == 9999999.0
+        # This indicates the block should be evicted with high priority
+        # if block.reuse_expected_time_s is not None and abs(block.reuse_expected_time_s - 9999999.0) < 0.001:
+        #     score = 999999999.0  # Huge score to prioritize eviction
+        #     block.cached_reuse_prob = score
+        #     block.last_eval_walltime = now
+        #     return score
+            
         if block.tool_hints is None or block.tool_hints == []:
             score = 999999999.0  # fallback
             # logger.info(f"[predictive_evictor] no tool hints found for block_id={block.last_accessed_by_user}")

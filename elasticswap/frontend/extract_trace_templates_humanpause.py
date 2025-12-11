@@ -1,5 +1,6 @@
-# Extract trace templates from 60s-annotated Claude dataset
+# Extract trace templates from 60s-annotated Claude dataset with HumanPause splitting
 # Maps <60s -> "persist" and >=60s -> "evict"
+# NEW: Splits traces at HumanPause boundaries instead of using windowed heuristics
 
 import os
 from dataclasses import dataclass
@@ -191,87 +192,157 @@ def map_duration_bucket_to_prediction(duration_bucket_data: dict) -> Optional[Mo
     )
 
 
-def split_session_into_time_windows(session_events: List[dict], window_duration_seconds: float = 600) -> List[List[dict]]:
+def split_session_at_human_pause(session_events: List[dict], min_split_duration_seconds: float = 300.0) -> List[List[dict]]:
     """
-    Split a session into multiple sub-sessions based on time windows from the first LLM call.
+    Split a session into multiple sub-sessions at HumanPause boundaries >= min_split_duration_seconds.
     
-    This ensures that when running experiments with a fixed duration (e.g., 10 minutes),
-    all kinds of patterns from longer traces will appear.
+    Logic:
+    - Iterate through events from start
+    - HumanPause < min_split_duration_seconds: treat as regular tool call, continue
+    - HumanPause >= min_split_duration_seconds: split here (this HumanPause ends the trace)
+    - Start new trace with the next LLMCall
+    - All traces end with HumanPause >= min_split_duration_seconds
+    
+    Each trace:
+    - Starts with an LLMCall
+    - Ends at a HumanPause toolcall >= min_split_duration_seconds (inclusive)
+    - Includes all events between start and end
+    - Includes HumanPause toolcalls < min_split_duration_seconds as regular tool calls
     
     Args:
         session_events: List of events for a single session (must be sorted by timestamp)
-        window_duration_seconds: Duration of each window in seconds (default: 600s = 10min)
+        min_split_duration_seconds: Minimum HumanPause duration (in seconds) to trigger a split (default: 300.0)
     
     Returns:
-        List of sub-session event lists, each representing a time window
+        List of sub-session event lists, each representing a trace from LLMCall to HumanPause (>= threshold)
     """
     if not session_events:
         return []
     
-    # Find the first LLM call to use as reference point
-    first_llm_time = None
-    for event in session_events:
-        if event['event_type'] == 'llm_call':
-            first_llm_time = date_parser.parse(event['timestamp']).timestamp()
-            break
-    
-    if first_llm_time is None:
-        # No LLM calls in this session, return as-is
-        return [session_events] if session_events else []
-    
-    # Split events into time windows
     sub_sessions = []
-    current_window_idx = 0
-    current_sub_session = []
+    current_trace = []
+    waiting_for_llm_start = True  # Need to find first LLM call to start a trace
     
-    for event in session_events:
-        event_time = date_parser.parse(event['timestamp']).timestamp()
-        time_since_start = event_time - first_llm_time
+    for i, event in enumerate(session_events):
+        if event['event_type'] == 'llm_call':
+            # If we were waiting for an LLM call, start a new trace
+            if waiting_for_llm_start:
+                current_trace = []
+                waiting_for_llm_start = False
+            
+            # Add LLM call to current trace
+            current_trace.append(event)
         
-        # Determine which window this event belongs to
-        event_window_idx = int(time_since_start / window_duration_seconds)
-        
-        # If we've moved to a new window, save the current sub-session
-        if event_window_idx > current_window_idx:
-            if current_sub_session:
-                sub_sessions.append(current_sub_session)
-            current_sub_session = []
-            current_window_idx = event_window_idx
-        
-        current_sub_session.append(event)
+        elif event['event_type'] == 'tool_call':
+            tool_name = event.get('tool_name', '')
+            
+            if tool_name == 'HumanPause':
+                # Get HumanPause duration
+                exec_time = event.get('execution_time_ms')
+                if exec_time is not None:
+                    duration_seconds = exec_time / 1000.0
+                else:
+                    duration_seconds = 0.0
+                
+                # Always include HumanPause in the current trace
+                current_trace.append(event)
+                
+                # Split if duration >= threshold
+                if duration_seconds >= min_split_duration_seconds:
+                    # Save this trace if it has at least one LLM call
+                    if current_trace and any(e['event_type'] == 'llm_call' for e in current_trace):
+                        sub_sessions.append(current_trace)
+                    
+                    # Reset for next trace
+                    current_trace = []
+                    waiting_for_llm_start = True
+                # If duration < threshold, continue in same trace (treat as regular tool call)
+            else:
+                # Regular tool call - add to current trace if we have an active trace
+                if not waiting_for_llm_start:
+                    current_trace.append(event)
+        else:
+            # Other event types - add to current trace if we have an active trace
+            if not waiting_for_llm_start:
+                current_trace.append(event)
     
-    # Don't forget the last sub-session
-    if current_sub_session:
-        sub_sessions.append(current_sub_session)
+    # Don't include any remaining trace that doesn't end with HumanPause >= 300s
+    # (Such traces would be incomplete and are skipped)
     
     return sub_sessions
 
 
+def calculate_template_duration(template: TraceTemplate) -> float:
+    """
+    Calculate end-to-end duration of a template in seconds.
+    
+    Returns the time difference between the first event and the last event.
+    """
+    from dateutil import parser as date_parser
+    
+    all_timestamps = []
+    
+    for turn in template.turns:
+        for tool_exec in turn.tool_executions:
+            try:
+                # Parse timestamp and add start time
+                start_epoch = date_parser.parse(tool_exec.start_timestamp).timestamp()
+                all_timestamps.append(start_epoch)
+                
+                # Add end time (start + duration)
+                end_epoch = start_epoch + tool_exec.duration
+                all_timestamps.append(end_epoch)
+            except (ValueError, TypeError):
+                # Skip invalid timestamps
+                continue
+    
+    if len(all_timestamps) < 2:
+        return 0.0
+    
+    # Return duration from first to last event
+    return max(all_timestamps) - min(all_timestamps)
+
+
 def extract_trace_templates_with_evolution(
     claude_dataset_dir: str,
-    window_duration_minutes: float = 10,      # Split traces into N-minute windows
-    max_trace_duration_minutes: float = None,  # No longer used, kept for compatibility
-    training_tool_calls_path: Optional[str] = "/vllm/vllm/elasticswap/training_tool_calls_sessionwise.json"
+    window_duration_minutes: float = None,  # Not used, kept for API compatibility
+    max_trace_duration_minutes: float = None,  # Not used, kept for API compatibility
+    training_tool_calls_path: Optional[str] = "/vllm/vllm/elasticswap/training_tool_calls_sessionwise.json",
+    min_humanpause_duration_seconds: float = 300.0,
+    max_template_duration_seconds: Optional[float] = None
 ) -> List[TraceTemplate]:
     """
-    Extract trace templates from Claude tool call dataset with 60s bucket predictions.
+    Extract trace templates from Claude tool call dataset with HumanPause-based splitting.
     
-    This version maps duration bucket predictions to persist/evict labels:
-    - "<60s" -> "persist"
-    - ">=60s" -> "evict"
+    This version:
+    - Splits traces at HumanPause boundaries (no windowed heuristics)
+    - Each trace starts with an LLMCall
+    - Each trace ends at a HumanPause toolcall
+    - Maps duration bucket predictions to persist/evict labels:
+      - "<60s" -> "persist"
+      - ">=60s" -> "evict"
     
     Args:
-        claude_dataset_dir: Directory with *_events.json files (60s annotated)
-        window_duration_minutes: Duration of each window in minutes (default 10 min)
-        max_trace_duration_minutes: Deprecated, kept for compatibility
+        claude_dataset_dir: Directory with *_events.json files (60s annotated with HumanPause)
+        window_duration_minutes: Not used (kept for API compatibility)
+        max_trace_duration_minutes: Not used (kept for API compatibility)
+        training_tool_calls_path: Path to training tool calls for filtering
+        min_humanpause_duration_seconds: Minimum HumanPause duration (in seconds) to trigger a split (default: 300.0)
+        max_template_duration_seconds: Maximum end-to-end duration (in seconds) for templates to include.
+                                      If None, no filtering by duration (default: None)
     
     Returns:
         List of TraceTemplate objects with turn-by-turn token evolution and persist/evict predictions
     """
     json_files = sorted(glob.glob(f"{claude_dataset_dir}/*_events.json"))
     
-    print(f"Loading 60s-annotated traces from {claude_dataset_dir}...")
+    print(f"Loading 60s-annotated traces with HumanPause from {claude_dataset_dir}...")
     print(f"Mapping: <60s -> persist, >=60s -> evict")
+    print(f"Splitting strategy: HumanPause boundaries >= {min_humanpause_duration_seconds} seconds")
+    print(f"  - HumanPause < {min_humanpause_duration_seconds}s: Included as regular tool calls")
+    print(f"  - HumanPause >= {min_humanpause_duration_seconds}s: Marks trace boundary (included in trace)")
+    if max_template_duration_seconds is not None:
+        print(f"  - Filtering: Only templates with end-to-end duration < {max_template_duration_seconds}s ({max_template_duration_seconds/60:.1f} minutes)")
 
     SKIP_TRAINING_FILTER = os.environ.get("SKIP_TRAINING_FILTER", "0") == "1"
     if SKIP_TRAINING_FILTER:
@@ -421,13 +492,13 @@ def extract_trace_templates_with_evolution(
     
     print(f"\n  Note: NO filtering based on tool duration (keeping all traces)")
     
-    # Extract templates without filtering
+    # Extract templates with HumanPause splitting
     templates = []
     total_traces = 0
     traces_split = 0
-    window_duration_seconds = window_duration_minutes * 60
     filtered_tool_call_count = 0
     filtered_templates = 0
+    humanpause_count = 0
     
     for json_file in json_files:
         with open(json_file) as f:
@@ -444,6 +515,11 @@ def extract_trace_templates_with_evolution(
         # SORT BY TIMESTAMP to ensure chronological order
         events.sort(key=lambda e: e['timestamp'])
         
+        # Count HumanPause events
+        for event in events:
+            if event['event_type'] == 'tool_call' and event.get('tool_name') == 'HumanPause':
+                humanpause_count += 1
+        
         # Group by session
         sessions = defaultdict(list)
         
@@ -451,14 +527,14 @@ def extract_trace_templates_with_evolution(
             session_id = event['session_id']
             sessions[session_id].append(event)
         
-        # Process each session (with splitting into time windows)
+        # Process each session (with splitting at HumanPause boundaries)
         # Sort sessions by ID to ensure deterministic order
         for session_id, session_events in sorted(sessions.items()):
             if not session_events:
                 continue
             
-            # Split session into fixed time windows from first LLM call
-            sub_sessions = split_session_into_time_windows(session_events, window_duration_seconds)
+            # Split session at HumanPause boundaries >= min_humanpause_duration_seconds
+            sub_sessions = split_session_at_human_pause(session_events, min_split_duration_seconds=min_humanpause_duration_seconds)
             
             if len(sub_sessions) > 1:
                 traces_split += 1
@@ -525,52 +601,86 @@ def extract_trace_templates_with_evolution(
                             )
                     
                     elif event['event_type'] == 'tool_call':
+                        tool_name = event.get('tool_name', '')
+                        
                         exec_time = event.get('execution_time_ms')
-                        if exec_time is not None and exec_time > 0:  # Skip 0.0 and None
+                        # HumanPause may have 0 execution time, but we still want to include it
+                        if exec_time is not None:
                             duration_seconds = exec_time / 1000.0
-                            
-                            # Extract and map duration bucket prediction
-                            model_pred = None
-                            duration_bucket = event.get('duration_bucket_prediction')
-                            if duration_bucket:
-                                model_pred = map_duration_bucket_to_prediction(duration_bucket)
-                            
-                            # No artificial cap - preserve actual tool durations
-                            tool_exec = ToolExecution(
-                                name=event['tool_name'],
-                                start_timestamp=event['timestamp'],
-                                duration=duration_seconds,
-                                tool_input=event.get('tool_input', {}),
-                                model_prediction=model_pred
-                            )
-                            current_tools.append(tool_exec)
+                        else:
+                            duration_seconds = 0.0
+                        
+                        # Extract and map duration bucket prediction
+                        # HumanPause typically doesn't have predictions, but check anyway
+                        model_pred = None
+                        duration_bucket = event.get('duration_bucket_prediction')
+                        if duration_bucket:
+                            model_pred = map_duration_bucket_to_prediction(duration_bucket)
+                        
+                        # Include HumanPause as a tool in the trace (marks the end)
+                        tool_exec = ToolExecution(
+                            name=tool_name,
+                            start_timestamp=event['timestamp'],
+                            duration=duration_seconds,
+                            tool_input=event.get('tool_input', {}),
+                            model_prediction=model_pred
+                        )
+                        current_tools.append(tool_exec)
                 
                 # Don't forget the last turn
                 if current_turn is not None:
                     current_turn.tool_executions = current_tools
                     turns.append(current_turn)
                 
+                # Only create template if trace ends with HumanPause
+                # Check if the last turn has a HumanPause tool
                 if turns:
-                    total_traces += 1
-                    
-                    # NO FILTERING - keep all traces
-                    # Use sub_idx to create unique template_id for split traces
-                    template_id_suffix = f"-{sub_idx}" if len(sub_sessions) > 1 else ""
-                    template = TraceTemplate(
-                        template_id=f"{session_id[:8]}{template_id_suffix}",
-                        session_id=session_id,
-                        turns=turns
+                    last_turn = turns[-1]
+                    has_humanpause = any(
+                        tool.name == 'HumanPause' 
+                        for tool in last_turn.tool_executions
                     )
-                    templates.append(template)
+                    
+                    if has_humanpause:
+                        total_traces += 1
+                        
+                        # NO FILTERING - keep all traces
+                        # Use sub_idx to create unique template_id for split traces
+                        template_id_suffix = f"-{sub_idx}" if len(sub_sessions) > 1 else ""
+                        template = TraceTemplate(
+                            template_id=f"{session_id[:8]}{template_id_suffix}",
+                            session_id=session_id,
+                            turns=turns
+                        )
+                        templates.append(template)
+                    # else: Skip traces that don't end with HumanPause
+    
+    # Filter templates by end-to-end duration if threshold is specified
+    filtered_by_duration = 0
+    if max_template_duration_seconds is not None:
+        filtered_templates_list = []
+        for template in templates:
+            duration = calculate_template_duration(template)
+            if duration < max_template_duration_seconds:
+                filtered_templates_list.append(template)
+            else:
+                filtered_by_duration += 1
+        templates = filtered_templates_list
     
     print(f"\n  ===== Trace Processing Summary =====")
-    print(f"  Original sessions split into windows: {traces_split}")
-    print(f"  Total sub-traces after splitting: {total_traces}")
+    print(f"  Total HumanPause events found: {humanpause_count}")
+    print(f"  Original sessions split at HumanPause: {traces_split}")
+    print(f"  Total traces after splitting: {total_traces}")
     print(f"  Tool calls filtered (training split): {filtered_tool_call_count}")
     print(f"  Templates skipped (training split): {filtered_templates}")
+    if max_template_duration_seconds is not None:
+        print(f"  Templates filtered by duration (< {max_template_duration_seconds}s): {filtered_by_duration}")
     print(f"  Templates extracted after filter: {len(templates)}")
-    print(f"  Window duration used: {window_duration_minutes} minutes ({window_duration_seconds}s)")
-    print(f"  Note: Each window starts from the first LLM call of the original session")
+    print(f"  Note: Each trace starts with LLMCall and ends at HumanPause >= {min_humanpause_duration_seconds}s")
+    print(f"  Note: HumanPause < {min_humanpause_duration_seconds}s are included as regular tool calls in traces")
+    print(f"  Note: Traces that don't end with HumanPause >= {min_humanpause_duration_seconds}s are skipped")
+    if max_template_duration_seconds is not None:
+        print(f"  Note: Only templates with end-to-end duration < {max_template_duration_seconds}s are included")
     return templates
 
 @dataclass
@@ -670,7 +780,6 @@ def instantiate_trajectory_from_template(
             tool_wait_time=turn_template.total_tool_time_with_overlap,
             tool_names=[t.name for t in turn_template.tool_executions],
             tool_predictions=tool_predictions,
-            # tool_names=[t.name for t in turn_template.tool_executions],
             tool_inputs=[t.tool_input for t in turn_template.tool_executions],
         )
         turns.append(turn_exec)
@@ -1004,8 +1113,9 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
                     "tool_name": name,
                     "tool_args": serialized,
                 })
-
-                llm_node.metadata["next_tools"] = tool_hints
+            
+            # Set next_tools after building the complete list
+            llm_node.metadata["next_tools"] = tool_hints
         else:
             llm_node.metadata["next_tools"] = []
             # No tools - add dummy prediction
@@ -1031,6 +1141,54 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
                     'aggregation_method': 'dummy_no_tools',
                     'num_tools_aggregated': 0
                 }
+        
+        # Explicitly ensure last turn has HumanPause in next_tools
+        # This is critical because the last LLMCall should always have HumanPause
+        # even if has_tools was False (which shouldn't happen, but we ensure it)
+        if is_last_turn:
+            # Check if HumanPause is already in next_tools
+            has_humanpause = any(
+                tool.get("tool_name") == "HumanPause" 
+                for tool in llm_node.metadata.get("next_tools", [])
+            )
+            
+            if not has_humanpause:
+                # HumanPause should be in turn.tool_names for the last turn
+                # Find it and add it to next_tools
+                humanpause_idx = None
+                for idx, tool_name in enumerate(turn.tool_names):
+                    if tool_name == "HumanPause":
+                        humanpause_idx = idx
+                        break
+                
+                if humanpause_idx is not None and humanpause_idx < len(turn.tool_inputs):
+                    # HumanPause exists in turn.tool_names, add it to next_tools
+                    raw_input = turn.tool_inputs[humanpause_idx]
+                    if raw_input is None:
+                        serialized = ""
+                    elif isinstance(raw_input, str):
+                        serialized = raw_input
+                    else:
+                        serialized = json.dumps(raw_input, sort_keys=True)
+                    
+                    humanpause_hint = {
+                        "tool_name": "HumanPause",
+                        "tool_args": serialized,
+                    }
+                    
+                    # Initialize next_tools if it's empty
+                    if not llm_node.metadata.get("next_tools"):
+                        llm_node.metadata["next_tools"] = []
+                    llm_node.metadata["next_tools"].append(humanpause_hint)
+                else:
+                    # HumanPause not found in turn.tool_names, but we know it should be there
+                    # Add a default HumanPause hint (fallback case)
+                    if not llm_node.metadata.get("next_tools"):
+                        llm_node.metadata["next_tools"] = []
+                    llm_node.metadata["next_tools"].append({
+                        "tool_name": "HumanPause",
+                        "tool_args": "{}",  # Default empty args
+                    })
         
         nodes.append(llm_node)
         
@@ -1130,28 +1288,6 @@ def trajectory_to_dag_nodes(trajectory: RequestTrajectory,
                 else:
                     # No tools - immediate reuse
                     node.metadata["kv_reuse_expected_duration_s"] = 0.0
-                
-                # node.metadata["next_tools"] = [
-                #     "tool_name": tool_name,
-                #     "tool_arguments": tool_arguments
-                # ]
-            # tool_hints = []
-            # for name, raw_input in zip(turn.tool_names, turn.tool_inputs):
-            #     if raw_input is None:
-            #         serialized = ""
-            #     elif isinstance(raw_input, str):
-            #         serialized = raw_input
-            #     else:
-            #         serialized = json.dumps(raw_input, sort_keys=True)
-            #     tool_hints.append({
-            #         "tool_name": name,
-            #         "tool_args": serialized,
-            #     })
-
-            # if tool_hints:
-            #     llm_node.metadata["next_tools"] = tool_hints
-            # else:
-            #     llm_node.metadata["next_tools"] = []
         
         # Tool nodes don't need kv_reuse hints
         for node in nodes:
@@ -1167,41 +1303,50 @@ def generate_claude_trace_workload(
     arrival_rate: float = 0.5,
     seed: int = 42,
     prefill_only: bool = False,
-    window_duration_minutes: float = 10,
+    window_duration_minutes: float = None,  # Not used, kept for API compatibility
     aggregation_strategy: str = 'avg_probabilities',
     oracle: bool = True,
     persist_bin_avg: float = 30.0,
     evict_bin_avg: float = 120.0,
-    rate_controller = None
+    rate_controller = None,
+    min_humanpause_duration_seconds: float = 300.0,
+    max_template_duration_seconds: Optional[float] = None
 ):
     """
-    Generate workload from 60s-annotated Claude traces for use with pipeline.py.
+    Generate workload from 60s-annotated Claude traces with HumanPause splitting.
     
-    This version maps duration bucket predictions to persist/evict labels:
-    - "<60s" -> "persist" 
-    - ">=60s" -> "evict"
+    This version:
+    - Splits traces at HumanPause boundaries (no windowed heuristics)
+    - Maps duration bucket predictions to persist/evict labels:
+      - "<60s" -> "persist" 
+      - ">=60s" -> "evict"
     
     Args:
         num_requests: Number of requests to generate
-        claude_dataset_dir: Directory with 60s-annotated Claude trace JSON files
+        claude_dataset_dir: Directory with 60s-annotated Claude trace JSON files (with HumanPause)
         arrival_rate: Poisson arrival rate (requests per second)
         seed: Random seed
         prefill_only: If True, only generate prefill requests (1 output token)
-        window_duration_minutes: Duration of each window in minutes (default 10)
+        window_duration_minutes: Not used (kept for API compatibility)
         aggregation_strategy: Strategy for aggregating parallel tool predictions (for labels)
             Options: 'avg_probabilities', 'majority_vote', 'conservative', 'aggressive', 'max_confidence'
         oracle: If True, use actual tool execution times (ORACLE - ground truth upper bound)
                 If False, use per-tool ML predictions (REALISTIC - practical performance)
         persist_bin_avg: Average duration for persist bin (<60s), default 30s
         evict_bin_avg: Average duration for evict bin (>=60s), default 120s
+        min_humanpause_duration_seconds: Minimum HumanPause duration (in seconds) to trigger a split (default: 300.0)
+        max_template_duration_seconds: Maximum end-to-end duration (in seconds) for templates to include.
+                                      If None, no filtering by duration (default: None)
     
     Returns:
         Tuple of (dags, dag_names, arrival_times, requests_meta) for run_dags_with_arrival_times
     """
-    # Extract templates (no percentile filtering, window-based splitting)
+    # Extract templates (HumanPause-based splitting, no windowed heuristics)
     templates = extract_trace_templates_with_evolution(
         claude_dataset_dir,
-        window_duration_minutes=window_duration_minutes
+        window_duration_minutes=window_duration_minutes,
+        min_humanpause_duration_seconds=min_humanpause_duration_seconds,
+        max_template_duration_seconds=max_template_duration_seconds
     )
     
     # Generate trajectories (returns trajectories with template usage tracked)
@@ -1297,7 +1442,7 @@ def generate_claude_trace_workload(
     workload_hash = hashlib.sha256(hash_bytes).hexdigest()[:16]
     
     mode_str = "ORACLE (ground truth)" if oracle else f"PREDICTED (persist={persist_bin_avg}s, evict={evict_bin_avg}s)"
-    print(f"\n✓ Generated Claude trace workload ({mode_str}):")
+    print(f"\n✓ Generated Claude trace workload with HumanPause splitting ({mode_str}):")
     print(f"  Requests: {num_requests}")
     print(f"  Arrival rate: {arrival_rate} req/s")
     print(f"  Seed: {seed}")
@@ -1315,49 +1460,4 @@ def generate_claude_trace_workload(
     print(f"    (This hash should be identical across runs with same seed)")
     
     return dags, dag_names, arrival_times, requests_meta
-
-
-def main():
-    # Extract templates
-    templates = extract_trace_templates_with_evolution("/vllm/vllm/elasticswap/toolcall_dataset_claude_annotated_60s_sessionwise")
-    print(f"\nExtracted {len(templates)} templates total\n")
-    
-    # Show first template as example
-    if templates:
-        templates[0].print_sequence()
-    
-    # Generate synthetic trajectories
-    trajectories = generate_request_trajectories(templates, num_requests=10, base_seed=42)
-    
-    # Show first trajectory
-    print("\n" + "="*70)
-    print("EXAMPLE GENERATED TRAJECTORY")
-    print("="*70)
-    traj = trajectories[0]
-    print(f"\n{traj}")
-    
-    # Show the source template for comparison
-    print("\n" + "-"*70)
-    print("SOURCE TEMPLATE:")
-    print("-"*70)
-    for i, turn in enumerate(traj.source_template.turns):
-        tools_info = f"{len(turn.tool_executions)} tools, wait={turn.total_tool_time_with_overlap:.3f}s"
-        print(f"  Turn {i}: tokens={turn.cache_read + turn.new_input}, output={turn.output}, {tools_info}")
-    print("-"*70 + "\n")
-    
-    # Show generated trajectory details
-    for turn in traj.turns:
-        print(f"\nTurn {turn.turn_idx}:")
-        print(f"  Prompt tokens: {len(turn.prompt_token_ids)} tokens (first 10: {turn.prompt_token_ids[:10]})")
-        print(f"  Target output: {turn.target_output_tokens} tokens")
-        print(f"  Tool wait time: {turn.tool_wait_time:.3f}s")
-        if turn.tool_names:
-            print(f"  Tools: {', '.join(turn.tool_names)}")
-            for tool_name, pred in zip(turn.tool_names, turn.tool_predictions):
-                if pred:
-                    print(f"    - {tool_name}: prediction={pred.predicted_label} (probs={pred.probabilities})")
-
-if __name__ == "__main__":
-    main()
-
 
